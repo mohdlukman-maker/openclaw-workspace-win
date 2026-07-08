@@ -1,0 +1,76 @@
+{
+  "document_type": "invoice",
+  "tax_invoice": "TG-K08950",
+  "invoice_date": "2026-07-02",
+  "supplier_name": "TUJU GALAKSI SDN BHD",
+  "contact_person": "Azyan Nasuha 016-8873726",
+  "confidence": 1,
+  "notes": null,
+  "line_items": [
+    {
+      "item_no": "1",
+      "description": "RHS 150mm x 100mm x 6mm x 6m",
+      "quantity": 9.0,
+      "quantity_unit": "pcs",
+      "unit_price": 566.8,
+      "line_total": 5101.2
+    },
+    {
+      "item_no": "2",
+      "description": "RHS 75mm x 50mm x 4mm x 6m",
+      "quantity": 5.0,
+      "quantity_unit": "pcs",
+      "unit_price": 180.0,
+      "line_total": 900.0
+    },
+    {
+      "item_no": "3",
+      "description": "RHS 2-1/2\" x 1-1/2\" x 2.3mm x 6m",
+      "quantity": 40.0,
+      "quantity_unit": "pcs",
+      "unit_price": 79.5,
+      "line_total": 3180.0
+    },
+    {
+      "item_no": "4",
+      "description": "Steel angle 50mm x 50mm x 5.0mm x 6m",
+      "quantity": 1.0,
+      "quantity_unit": "pcs",
+      "unit_price": 72.8,
+      "line_total": 72.8
+    },
+    {
+      "item_no": "5",
+      "description": "MS Steel Angle 50mm x 50mm x 4.0mm x 6m",
+      "quantity": 4.0,
+      "quantity_unit": "pcs",
+      "unit_price": 64.7,
+      "line_total": 258.8
+    },
+    {
+      "item_no": "6",
+      "description": "GI pipe 32mm x B class x 6m (Plain End)",
+      "quantity": 18.0,
+      "quantity_unit": "pcs",
+      "unit_price": 128.7,
+      "line_total": 2316.6
+    },
+    {
+      "item_no": "7",
+      "description": "GI Pipe 20mm x B class x 6m (Plain End)",
+      "quantity": 5.0,
+      "quantity_unit": "pcs",
+      "unit_price": 67.6,
+      "line_total": 338.0
+    }
+  ],
+  "extraction_method": "ai_primary",
+  "local_ocr_verification": {
+    "accepted": false,
+    "confidence": 35.1,
+    "reason": "TUJU focused OCR confidence 35.1 is below 55.0.",
+    "tax_invoice": null,
+    "invoice_date": null
+  },
+  "source_image_hash": "f35838090268bb0d8636a39a88a49e69266604efdea8db263d77e73320388979"
+}

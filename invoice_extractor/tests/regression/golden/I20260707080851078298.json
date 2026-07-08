@@ -1,0 +1,38 @@
+{
+  "tax_invoice": "TG-K08952",
+  "invoice_date": "2026-07-02",
+  "contact_person": "Lukman 018-9414868",
+  "confidence": 0.801,
+  "notes": "TUJU focused OCR accepted with confidence 80.1.",
+  "line_items": [
+    {
+      "item_no": "1",
+      "description": "AUX Split unit air-cond inverter ASWOS9CAR3DI , 1.0HP",
+      "quantity": 1.0,
+      "quantity_unit": "uni",
+      "unit_price": null,
+      "line_total": null
+    },
+    {
+      "item_no": "2",
+      "description": "Uninstalling existing AC unit and Install new air-cond",
+      "quantity": 1.0,
+      "quantity_unit": "uni",
+      "unit_price": null,
+      "line_total": null
+    },
+    {
+      "item_no": "3",
+      "description": "Checking, repair wiring ,service and refill gas 1 unit existing AC",
+      "quantity": 1.0,
+      "quantity_unit": "uni",
+      "unit_price": null,
+      "line_total": null
+    }
+  ],
+  "extraction_method": "tuju_focused_ocr",
+  "extraction_profile": "tuju_delivery_order_focused",
+  "document_profile": "tuju_delivery_order",
+  "document_type": "delivery_order",
+  "source_image_hash": "dda5ec2ec642d63ca665240e88dadb3a51074d1d90b175b2679d1cc3dabd4c5c"
+}

@@ -1,0 +1,26 @@
+2026-07-01 09:00:03 Folder organizer started. DryRun=False MinimumAgeHours=24
+2026-07-01 09:00:03 Scanning Desktop root: C:\Users\mohdl\OneDrive\Desktop
+2026-07-01 09:00:03 Skipped hidden/system file: C:\Users\mohdl\OneDrive\Desktop\desktop.ini
+2026-07-01 09:00:03 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Excel.lnk
+2026-07-01 09:00:03 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\PowerPoint.lnk
+2026-07-01 09:00:03 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Word.lnk
+2026-07-01 09:00:03 Scanning Downloads root: C:\Users\mohdl\Downloads
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\33kV - SUMMARY ON REVIEW AND ASSESSMENT OF QC RECORDS FOR COMPLETED AND ABANDONED WORKS.pdf -> C:\Users\mohdl\Downloads\Documents\33kV - SUMMARY ON REVIEW AND ASSESSMENT OF QC RECORDS FOR COMPLETED AND ABANDONED WORKS.pdf
+2026-07-01 09:00:03 Created folder: C:\Users\mohdl\Downloads\09 Archives Compressed
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\33kV_QC_Record_Assessment_JPEG_pages.zip -> C:\Users\mohdl\Downloads\09 Archives Compressed\33kV_QC_Record_Assessment_JPEG_pages.zip
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\BFE PO TECH 0126 4130 TUJU GALAKSI SDN BHD.xlsx -> C:\Users\mohdl\Downloads\Documents\BFE PO TECH 0126 4130 TUJU GALAKSI SDN BHD (1).xlsx
+2026-07-01 09:00:03 Skipped hidden/system file: C:\Users\mohdl\Downloads\desktop.ini
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\HPJ_33kV_TOC_AppendixC_QC_Edited.jpg -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\HPJ_33kV_TOC_AppendixC_QC_Edited.jpg
+2026-07-01 09:00:03 Skipped recent file: C:\Users\mohdl\Downloads\jkr_letter_generator.html
+2026-07-01 09:00:03 Skipped recent file: C:\Users\mohdl\Downloads\Kewangan Tahun 2026 R6.pdf
+2026-07-01 09:00:03 Skipped recent file: C:\Users\mohdl\Downloads\MAKLUMBALAS PERTINDIHAN SEMPADAN PAGAR PERIMETER ANTARA TAPAK PROJEK DAN JABATAN KESIHATAN NEGERI SARAWAK (JKNS).pdf
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\Material Requsition.xlsx -> C:\Users\mohdl\Downloads\Documents\Material Requsition.xlsx
+2026-07-01 09:00:03 Skipped recent file: C:\Users\mohdl\Downloads\SK-PETRAJAYA-SITE-JKR-2024 (022).pdf
+2026-07-01 09:00:03 Skipped recent file: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-27 at 16.10.04.jpeg
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-29 at 09.47.04 (1).jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-29 at 09.47.04 (1).jpeg
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-29 at 09.47.04.jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-29 at 09.47.04.jpeg
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-29 at 09.47.05.jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-29 at 09.47.05.jpeg
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-29 at 09.47.29.jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-29 at 09.47.29.jpeg
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-29 at 09.47.31.jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-29 at 09.47.31.jpeg
+2026-07-01 09:00:03 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-29 at 14.18.39.jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-29 at 14.18.39.jpeg
+2026-07-01 09:00:03 Folder organizer finished. Log=C:\Users\mohdl\.openclaw\workspace\logs\folder-organizer-2026-07-01_090003.log

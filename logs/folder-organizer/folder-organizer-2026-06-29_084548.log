@@ -1,0 +1,19 @@
+2026-06-29 08:45:48 Folder organizer started. DryRun=False MinimumAgeHours=24
+2026-06-29 08:45:48 Scanning Desktop root: C:\Users\mohdl\OneDrive\Desktop
+2026-06-29 08:45:49 Skipped hidden/system file: C:\Users\mohdl\OneDrive\Desktop\desktop.ini
+2026-06-29 08:45:49 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Excel.lnk
+2026-06-29 08:45:49 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\PowerPoint.lnk
+2026-06-29 08:45:49 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Word.lnk
+2026-06-29 08:45:49 Scanning Downloads root: C:\Users\mohdl\Downloads
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\BFE PO TECH 0126 4130 TUJU GALAKSI SDN BHD.xlsx -> C:\Users\mohdl\Downloads\Documents\BFE PO TECH 0126 4130 TUJU GALAKSI SDN BHD.xlsx
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\Blackfox.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\Blackfox.png
+2026-06-29 08:45:49 Skipped hidden/system file: C:\Users\mohdl\Downloads\desktop.ini
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\EOT_No6_Hospital_Petra_Jaya_r2.pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\EOT_No6_Hospital_Petra_Jaya_r2.pdf
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\HPJ-PPK2_BFESB_PEMILIHAN OPSYEN KERJA PAGAR PERIMETER.pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\HPJ-PPK2_BFESB_PEMILIHAN OPSYEN KERJA PAGAR PERIMETER.pdf
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\jkr_letter_generator.html -> C:\Users\mohdl\Downloads\10 Web Code Data\jkr_letter_generator.html
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\jkr_letter_template.html -> C:\Users\mohdl\Downloads\10 Web Code Data\jkr_letter_template.html
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\MAKLUMBALAS PERTINDIHAN SEMPADAN PAGAR PERIMETER ANTARA TAPAK PROJEK DAN JABATAN KESIHATAN NEGERI SARAWAK (JKNS).pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\MAKLUMBALAS PERTINDIHAN SEMPADAN PAGAR PERIMETER ANTARA TAPAK PROJEK DAN JABATAN KESIHATAN NEGERI SARAWAK (JKNS).pdf
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\Picture1.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\Picture1.png
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\SK-PETRAJAYA-SITE-JKR-2024 (022).pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\SK-PETRAJAYA-SITE-JKR-2024 (022).pdf
+2026-06-29 08:45:49 Moved: C:\Users\mohdl\Downloads\v.o dismantle security fencing.pdf -> C:\Users\mohdl\Downloads\Documents\v.o dismantle security fencing.pdf
+2026-06-29 08:45:49 Folder organizer finished. Log=C:\Users\mohdl\.openclaw\workspace\logs\folder-organizer-2026-06-29_084548.log

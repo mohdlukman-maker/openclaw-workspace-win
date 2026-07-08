@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HotSpot — Interactive Image Annotator</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f0f11; --bg2: #17171b; --bg3: #1e1e24; --bg4: #26262e;
+  --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.14);
+  --text: #f0eff5; --text2: #9896a8; --text3: #6b6979;
+  --accent: #6c63ff; --accent2: #8b84ff; --accent-glow: rgba(108,99,255,0.25);
+  --red: #ff5e6c; --green: #3ddc97; --amber: #f7b731;
+  --sidebar: 296px;
+}
+
+body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; overflow: hidden; }
+
+/* ── SIDEBAR ── */
+#sidebar { width: var(--sidebar); min-width: var(--sidebar); background: var(--bg2); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.sidebar-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.logo { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; }
+.logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.logo sub { font-size: 10px; font-weight: 400; color: var(--text2); letter-spacing: 1px; text-transform: uppercase; vertical-align: middle; }
+.sidebar-section { padding: 14px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.section-label { font-size: 10px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text3); margin-bottom: 10px; }
+
+.upload-zone { border: 1.5px dashed var(--border2); border-radius: 10px; padding: 16px 12px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg3); }
+.upload-zone:hover { border-color: var(--accent); background: rgba(108,99,255,0.06); }
+.upload-zone.has-image { border-style: solid; border-color: var(--accent); padding: 10px 12px; }
+.upload-zone svg { color: var(--text3); margin-bottom: 5px; display: block; margin-left: auto; margin-right: auto; }
+.upload-zone.has-image svg { color: var(--green); }
+.upload-title { font-size: 12px; font-weight: 500; color: var(--text2); margin-bottom: 2px; }
+.upload-sub { font-size: 11px; color: var(--text3); }
+#base-img-name { font-size: 11px; color: var(--green); font-family: 'DM Mono', monospace; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.btn { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 9px 14px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; border: none; }
+.btn-danger { background: transparent; color: var(--red); border: 1px solid rgba(255,94,108,0.25); font-size: 12px; padding: 7px 10px; }
+.btn-danger:hover { background: rgba(255,94,108,0.1); }
+.btn-publish { background: linear-gradient(135deg, #3ddc97, #2ab57d); color: #0a2e1f; font-weight: 600; }
+.btn-publish:hover { filter: brightness(1.08); }
+.btn-publish:disabled { opacity: 0.35; cursor: not-allowed; filter: none; }
+
+.mode-toggle { display: flex; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 3px; }
+.mode-btn { flex: 1; padding: 7px; border-radius: 6px; border: none; background: transparent; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 500; color: var(--text2); cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 5px; }
+.mode-btn.active { background: var(--accent); color: #fff; }
+
+.points-list { flex: 1; overflow-y: auto; padding: 10px 14px; }
+.points-list::-webkit-scrollbar { width: 4px; }
+.points-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+.point-item { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 10px 11px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s; }
+.point-item:hover { border-color: var(--border2); background: var(--bg4); }
+.point-item.selected { border-color: var(--accent); background: rgba(108,99,255,0.08); }
+
+.point-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.point-badge { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; font-family: 'DM Mono', monospace; flex-shrink: 0; }
+.point-name-input { background: var(--bg4); border: 1px solid var(--border2); border-radius: 6px; padding: 4px 8px; font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--text); width: 100%; }
+.point-name-input:focus { outline: none; border-color: var(--accent); }
+
+/* ── MULTI-IMAGE STRIP ── */
+.img-strip { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 6px; }
+.img-thumb-wrap { position: relative; width: 54px; height: 44px; border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+.img-thumb { width: 100%; height: 100%; object-fit: cover; display: block; border: 1px solid var(--border2); border-radius: 6px; }
+.img-thumb-remove { position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; border-radius: 50%; background: rgba(255,94,108,0.85); color: #fff; font-size: 9px; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 0.15s; border: none; }
+.img-thumb-wrap:hover .img-thumb-remove { opacity: 1; }
+.img-add-btn { width: 54px; height: 44px; border: 1.5px dashed var(--border2); border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; background: var(--bg4); transition: all 0.15s; color: var(--text3); font-size: 9px; }
+.img-add-btn:hover { border-color: var(--accent); color: var(--accent2); }
+.img-count-badge { font-size: 10px; color: var(--text3); margin-bottom: 5px; }
+
+/* overlay controls */
+.overlay-controls { background: var(--bg4); border-radius: 7px; padding: 8px 9px; margin-bottom: 6px; }
+.overlay-toggle-row { display: flex; align-items: center; justify-content: space-between; }
+.overlay-label { font-size: 11px; color: var(--text2); }
+.toggle-switch { position: relative; width: 32px; height: 18px; }
+.toggle-switch input { display: none; }
+.toggle-slider { position: absolute; inset: 0; background: var(--bg3); border: 1px solid var(--border2); border-radius: 20px; cursor: pointer; transition: 0.2s; }
+.toggle-slider::before { content: ''; position: absolute; width: 12px; height: 12px; background: var(--text3); border-radius: 50%; top: 2px; left: 2px; transition: 0.2s; }
+.toggle-switch input:checked + .toggle-slider { background: var(--accent); border-color: var(--accent); }
+.toggle-switch input:checked + .toggle-slider::before { background: #fff; transform: translateX(14px); }
+.overlay-expanded { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+.overlay-input { background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 4px 7px; font-family: 'DM Sans', sans-serif; font-size: 11px; color: var(--text); width: 100%; }
+.overlay-input:focus { outline: none; border-color: var(--accent); }
+.overlay-input::placeholder { color: var(--text3); }
+.row2 { display: flex; gap: 5px; }
+.row2 select { flex: 1; }
+select.overlay-input option { background: #1e1e24; }
+.color-row { display: flex; gap: 5px; align-items: center; }
+.color-row label { font-size: 10px; color: var(--text3); white-space: nowrap; }
+.color-input { width: 28px; height: 24px; border-radius: 5px; border: 1px solid var(--border2); padding: 2px; cursor: pointer; background: transparent; }
+
+.point-desc-input { background: var(--bg4); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-family: 'DM Sans', sans-serif; font-size: 11px; color: var(--text2); width: 100%; resize: none; height: 38px; }
+.point-desc-input:focus { outline: none; border-color: var(--accent); }
+
+.empty-state { text-align: center; padding: 28px 16px; color: var(--text3); font-size: 12px; line-height: 1.6; }
+.empty-icon { font-size: 26px; margin-bottom: 8px; opacity: 0.4; }
+
+/* ── MAIN ── */
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#toolbar { display: flex; align-items: center; justify-content: space-between; padding: 11px 20px; border-bottom: 1px solid var(--border); background: var(--bg2); gap: 12px; }
+.toolbar-left { display: flex; align-items: center; gap: 10px; }
+.toolbar-info { font-size: 12px; color: var(--text3); }
+.point-count-badge { background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; font-family: 'DM Mono', monospace; }
+
+#canvas-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; padding: 24px; }
+#canvas-container { position: relative; display: inline-block; cursor: crosshair; border-radius: 10px; overflow: visible; box-shadow: 0 0 0 1px var(--border), 0 20px 60px rgba(0,0,0,0.5); }
+#canvas-container.view-mode { cursor: default; }
+#base-image { display: block; max-width: 100%; max-height: calc(100vh - 120px); border-radius: 10px; user-select: none; }
+
+.no-image-placeholder { width: 700px; height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 2px dashed var(--border2); border-radius: 12px; background: var(--bg2); color: var(--text3); cursor: default; }
+.no-image-placeholder svg { opacity: 0.3; }
+.no-image-placeholder p { font-size: 14px; opacity: 0.5; }
+
+/* ── HOTSPOT PINS ── */
+.hotspot { position: absolute; transform: translate(-50%, -50%); z-index: 10; cursor: pointer; }
+.hotspot-pin { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); border: 2px solid rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: #fff; font-family: 'DM Mono', monospace; box-shadow: 0 0 0 3px var(--accent-glow), 0 2px 8px rgba(0,0,0,0.4); transition: transform 0.15s, box-shadow 0.15s; position: relative; z-index: 2; }
+.hotspot-pin::after { content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%; background: var(--accent); opacity: 0.3; animation: ping 2s cubic-bezier(0,0,0.2,1) infinite; }
+@keyframes ping { 75%, 100% { transform: scale(2.2); opacity: 0; } }
+.hotspot:hover .hotspot-pin { transform: scale(1.15); box-shadow: 0 0 0 5px var(--accent-glow), 0 4px 16px rgba(0,0,0,0.5); }
+.hotspot.selected .hotspot-pin { background: var(--amber); box-shadow: 0 0 0 3px rgba(247,183,49,0.3), 0 2px 8px rgba(0,0,0,0.4); }
+
+/* ── FLOATING TOOLTIP ── */
+#floating-tooltip {
+  position: absolute;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  width: 240px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+  z-index: 200;
+  overflow: hidden;
+}
+#floating-tooltip.visible { opacity: 1; }
+#floating-tooltip.clickable { pointer-events: all; }
+
+/* tooltip image area */
+.tip-img-wrap {
+  position: relative; width: 100%; overflow: hidden;
+  border-radius: 0;
+}
+.tip-img-main { width: 100%; height: 130px; object-fit: cover; display: block; }
+
+/* "Click to View More" badge */
+.tip-more-badge {
+  position: absolute; bottom: 7px; right: 7px;
+  background: rgba(0,0,0,0.72);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 10px; font-weight: 500; color: #fff;
+  display: flex; align-items: center; gap: 4px;
+  backdrop-filter: blur(4px);
+  cursor: pointer;
+}
+.tip-more-badge svg { flex-shrink: 0; }
+
+/* carousel nav arrows */
+.tip-carousel-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2);
+  color: #fff; display: none; align-items: center; justify-content: center;
+  cursor: pointer; z-index: 10; font-size: 13px; transition: background 0.15s;
+  backdrop-filter: blur(4px);
+}
+.tip-carousel-nav:hover { background: rgba(108,99,255,0.7); }
+.tip-carousel-nav.left { left: 7px; }
+.tip-carousel-nav.right { right: 7px; }
+.tip-carousel-nav.show { display: flex; }
+
+/* image counter dots */
+.tip-dots { display: flex; gap: 4px; justify-content: center; padding: 5px 0 2px; }
+.tip-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--border2); transition: background 0.15s; }
+.tip-dot.active { background: var(--accent); }
+
+/* overlay text on image */
+.tip-img-overlay { position: absolute; left: 0; right: 0; padding: 6px 9px; display: none; }
+.tip-img-overlay.pos-top { top: 0; }
+.tip-img-overlay.pos-middle { top: 50%; transform: translateY(-50%); text-align: center; }
+.tip-img-overlay.pos-bottom { bottom: 0; }
+.overlay-bg-solid { background: rgba(0,0,0,0.6); }
+.overlay-bg-gradient-top { background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%); padding-bottom: 12px; }
+.overlay-bg-gradient-bottom { background: linear-gradient(0deg, rgba(0,0,0,0.7) 0%, transparent 100%); padding-top: 12px; }
+.overlay-bg-none { background: transparent; }
+.tooltip-overlay-text { line-height: 1.35; white-space: pre-wrap; word-break: break-word; display: block; }
+
+.tip-body { padding: 10px 12px 10px; }
+.tip-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+.tip-desc { font-size: 11px; color: var(--text2); line-height: 1.5; }
+
+.tip-arrow { position: absolute; width: 0; height: 0; border: 6px solid transparent; }
+.tip-arrow.down { top: 100%; border-top-color: var(--bg2); }
+.tip-arrow.up { bottom: 100%; border-bottom-color: var(--bg2); }
+
+/* ── PUBLISHED OVERLAY ── */
+#published-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(6px); }
+#published-overlay.open { display: flex; }
+.published-modal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 16px; width: 90vw; max-width: 1060px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; padding: 15px 20px; border-bottom: 1px solid var(--border); }
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-close { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; color: var(--text2); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; transition: all 0.15s; }
+.modal-close:hover { background: var(--bg4); color: var(--text); }
+.modal-body { flex: 1; overflow: auto; padding: 20px; display: flex; align-items: flex-start; justify-content: center; }
+.published-canvas { position: relative; display: inline-block; }
+#published-image { display: block; max-width: 100%; border-radius: 8px; }
+.modal-footer { padding: 13px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: flex-end; }
+.footer-btn { padding: 8px 18px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+.footer-btn-outline { background: transparent; color: var(--text2); border: 1px solid var(--border2); }
+.footer-btn-outline:hover { background: var(--bg4); }
+.footer-btn-export { background: var(--accent); color: #fff; }
+.footer-btn-export:hover { background: var(--accent2); }
+
+.pub-hotspot { position: absolute; transform: translate(-50%,-50%); cursor: pointer; }
+.pub-pin { width: 32px; height: 32px; border-radius: 50%; background: var(--accent); border: 2.5px solid rgba(255,255,255,0.95); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; font-family: 'DM Mono', monospace; box-shadow: 0 0 0 4px var(--accent-glow), 0 4px 12px rgba(0,0,0,0.5); position: relative; z-index: 2; transition: transform 0.15s; }
+.pub-pin::after { content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%; background: var(--accent); opacity: 0.25; animation: ping 2.5s cubic-bezier(0,0,0.2,1) infinite; }
+.pub-hotspot:hover .pub-pin { transform: scale(1.1); }
+
+.pub-tooltip { position: absolute; background: #1a1a22; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; width: 248px; pointer-events: none; opacity: 0; transition: opacity 0.15s; box-shadow: 0 12px 40px rgba(0,0,0,0.6); z-index: 200; overflow: hidden; }
+
+.instructions { font-size: 11px; color: var(--text3); line-height: 1.6; padding: 9px 11px; background: var(--bg3); border-radius: 8px; border-left: 2px solid var(--accent); margin-top: 10px; }
+.sidebar-footer { padding: 12px 16px; flex-shrink: 0; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <div class="sidebar-header">
+    <div class="logo"><div class="logo-dot"></div>HotSpot <sub>annotator</sub></div>
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">Base Image</div>
+    <div class="upload-zone" id="base-upload-zone" onclick="document.getElementById('base-img-input').click()">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+      <div class="upload-title">Upload base image</div>
+      <div class="upload-sub">PNG, JPG, GIF, WEBP</div>
+      <div id="base-img-name"></div>
+    </div>
+    <input type="file" id="base-img-input" accept="image/*" style="display:none">
+  </div>
+
+  <div class="sidebar-section">
+    <div class="section-label">Mode</div>
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="mode-add" onclick="setMode('add')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Add Points
+      </button>
+      <button class="mode-btn" id="mode-view" onclick="setMode('view')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>Preview
+      </button>
+    </div>
+    <div class="instructions">Click on the image to drop a hotspot. Upload multiple photos per point — hover to preview, click for gallery.</div>
+  </div>
+
+  <div class="points-list" id="points-list">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">📍</div>Upload an image and click<br>to add your first hotspot
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <button class="btn btn-danger" onclick="clearAll()" style="margin-bottom:8px">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>Clear All Points
+    </button>
+    <button class="btn btn-publish" id="publish-btn" onclick="openPublished()" disabled>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Publish Interactive Page
+    </button>
+  </div>
+</aside>
+
+<main id="main">
+  <div id="toolbar">
+    <div class="toolbar-left">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span class="toolbar-info" id="toolbar-hint">Upload a base image to get started</span>
+    </div>
+    <span class="point-count-badge" id="point-count-badge" style="display:none">0 points</span>
+  </div>
+  <div id="canvas-wrapper">
+    <div id="canvas-container" onclick="handleCanvasClick(event)">
+      <div class="no-image-placeholder" id="no-image-msg">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>
+        <p>Upload a base image from the sidebar</p>
+      </div>
+      <img id="base-image" style="display:none" draggable="false">
+      <div id="floating-tooltip">
+        <div class="tip-arrow" id="ft-arrow"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="published-overlay">
+  <div class="published-modal">
+    <div class="modal-header">
+      <div class="modal-title">🌐 Published Interactive Page Preview</div>
+      <button class="modal-close" onclick="closePublished()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="published-canvas" id="published-canvas">
+        <img id="published-image" draggable="false">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="footer-btn footer-btn-outline" onclick="closePublished()">Close</button>
+      <button class="footer-btn footer-btn-export" onclick="exportHTML()">⬇ Export as HTML File</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="point-img-input" accept="image/*" multiple style="display:none">
+
+<script>
+/* ═══ STATE ═══ */
+let state = { baseImage: null, points: [], mode: 'add', selectedPoint: null, nextLabel: 'A' };
+
+const TIP_W = 240, TIP_H = 230, PIN_R = 14, M = 10;
+
+/* ═══ LABEL ═══ */
+function advanceLabel(l) {
+  if (!l) return 'A';
+  const c = l.charCodeAt(l.length - 1);
+  return c === 90 ? l.slice(0, -1) + 'AA' : l.slice(0, -1) + String.fromCharCode(c + 1);
+}
+
+/* ═══ BASE IMAGE ═══ */
+document.getElementById('base-img-input').addEventListener('change', e => {
+  const file = e.target.files[0]; if (!file) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    state.baseImage = ev.target.result;
+    const img = document.getElementById('base-image');
+    img.src = ev.target.result; img.style.display = 'block';
+    document.getElementById('no-image-msg').style.display = 'none';
+    document.getElementById('base-upload-zone').classList.add('has-image');
+    document.getElementById('base-img-name').textContent = file.name;
+    document.getElementById('toolbar-hint').textContent = 'Click on the image to add hotspot markers';
+    updatePublishBtn();
+  };
+  r.readAsDataURL(file);
+});
+
+const uploadZone = document.getElementById('base-upload-zone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.style.borderColor = 'var(--accent)'; });
+uploadZone.addEventListener('dragleave', () => { uploadZone.style.borderColor = ''; });
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault(); uploadZone.style.borderColor = '';
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) {
+    const dt = new DataTransfer(); dt.items.add(file);
+    document.getElementById('base-img-input').files = dt.files;
+    document.getElementById('base-img-input').dispatchEvent(new Event('change'));
+  }
+});
+
+/* ═══ MODE ═══ */
+function setMode(m) {
+  state.mode = m;
+  document.getElementById('mode-add').classList.toggle('active', m === 'add');
+  document.getElementById('mode-view').classList.toggle('active', m === 'view');
+  document.getElementById('canvas-container').classList.toggle('view-mode', m === 'view');
+}
+
+/* ═══ CANVAS CLICK ═══ */
+function handleCanvasClick(e) {
+  if (state.mode !== 'add') return;
+  if (!state.baseImage) return;
+  if (e.target.closest('.hotspot') || e.target.closest('#floating-tooltip')) return;
+  hideTooltip();
+
+  const img = document.getElementById('base-image');
+  const rect = img.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 100;
+  const y = ((e.clientY - rect.top) / rect.height) * 100;
+  if (x < 0 || x > 100 || y < 0 || y > 100) return;
+
+  const point = {
+    id: Date.now(), label: state.nextLabel, x, y,
+    name: `Point ${state.nextLabel}`, description: '',
+    images: [], // array of {src, overlay:{enabled,text,position,fontSize,fontColor,bgStyle}}
+  };
+
+  state.nextLabel = advanceLabel(state.nextLabel);
+  state.points.push(point);
+  renderHotspot(point);
+  renderSidebarPoint(point);
+  selectPoint(point.id);
+  updateCountBadge(); updatePublishBtn();
+}
+
+/* ═══════════════════════════════════════════════
+   FLOATING TOOLTIP SYSTEM
+   - hover  → show first image, "Click to View More" badge (if >1 img)
+   - click  → make pointer-events:all, show carousel arrows
+═══════════════════════════════════════════════ */
+let _activePt = null;
+let _tipExpanded = false;
+let _tipIdx = 0;
+
+function buildTooltipHTML(pt, expanded) {
+  const imgs = pt.images || [];
+  const idx  = expanded ? _tipIdx : 0;
+  const img  = imgs[idx] || null;
+  const ov   = img ? img.overlay : { enabled: false };
+  const bgCls = ov.bgStyle === 'solid' ? 'overlay-bg-solid'
+    : ov.bgStyle === 'gradient-top'    ? 'overlay-bg-gradient-top'
+    : ov.bgStyle === 'gradient-bottom' ? 'overlay-bg-gradient-bottom'
+    : 'overlay-bg-none';
+
+  const hasMultiple = imgs.length > 1;
+  const showMore = !expanded && hasMultiple;
+
+  let imgHTML = '';
+  if (img) {
+    const overlayHTML = (ov.enabled && ov.text)
+      ? `<div class="tip-img-overlay pos-${ov.position} ${bgCls}" style="display:block">
+           <span class="tooltip-overlay-text" style="font-size:${ov.fontSize}px;color:${ov.fontColor}">${escHtml(ov.text)}</span>
+         </div>` : '';
+
+    const leftBtn  = expanded && hasMultiple ? `<button class="tip-carousel-nav left show" onclick="tipNav(-1,event)">&#8249;</button>` : '';
+    const rightBtn = expanded && hasMultiple ? `<button class="tip-carousel-nav right show" onclick="tipNav(1,event)">&#8250;</button>` : '';
+
+    const moreBadge = showMore
+      ? `<div class="tip-more-badge">
+           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+           Click to View More
+         </div>` : '';
+
+    const dotsHTML = expanded && hasMultiple
+      ? `<div class="tip-dots">${imgs.map((_,i) => `<div class="tip-dot${i===idx?' active':''}"></div>`).join('')}</div>`
+      : '';
+
+    imgHTML = `
+      <div class="tip-img-wrap">
+        <img class="tip-img-main" src="${img.src}" alt="">
+        ${overlayHTML}
+        ${leftBtn}${rightBtn}
+        ${moreBadge}
+      </div>
+      ${dotsHTML}
+    `;
+  }
+
+  return `
+    ${imgHTML}
+    <div class="tip-body">
+      <div class="tip-title">${escHtml(pt.name)}</div>
+      ${pt.description ? `<div class="tip-desc">${escHtml(pt.description)}</div>` : ''}
+    </div>
+    <div class="tip-arrow" id="ft-arrow"></div>
+  `;
+}
+
+function positionTooltip(pt) {
+  const ft  = document.getElementById('floating-tooltip');
+  const img = document.getElementById('base-image');
+  if (!ft || !img) return;
+  const imgW = img.offsetWidth, imgH = img.offsetHeight;
+  const pinX = (pt.x / 100) * imgW, pinY = (pt.y / 100) * imgH;
+  const TH = ft.offsetHeight || TIP_H;
+  const gap = PIN_R + 4;
+  const canAbove = (pinY - gap - TH) >= M;
+  const canBelow = (pinY + gap + TH) <= (imgH - M);
+  const above = canAbove || !canBelow;
+  let tipTop = above ? Math.max(M, pinY - gap - TH) : Math.min(pinY + gap, imgH - TH - M);
+  let tipLeft = Math.max(M, Math.min(pinX - TIP_W / 2, imgW - TIP_W - M));
+  ft.style.left = tipLeft + 'px'; ft.style.top = tipTop + 'px';
+  const arr = document.getElementById('ft-arrow');
+  if (arr) {
+    arr.className = 'tip-arrow ' + (above ? 'down' : 'up');
+    arr.style.left = Math.max(10, Math.min(pinX - tipLeft - 6, TIP_W - 22)) + 'px';
+  }
+}
+
+function showTooltip(pt, expanded) {
+  _activePt = pt;
+  _tipExpanded = expanded;
+  const ft = document.getElementById('floating-tooltip');
+  if (!ft) return;
+  ft.innerHTML = buildTooltipHTML(pt, expanded);
+  ft.className = 'floating-tooltip' + (expanded ? ' clickable' : '');
+  ft.id = 'floating-tooltip';
+  ft.style.opacity = '0';
+  requestAnimationFrame(() => {
+    positionTooltip(pt);
+    ft.style.opacity = '1';
+  });
+}
+
+function hideTooltip() {
+  _activePt = null; _tipExpanded = false; _tipIdx = 0;
+  const ft = document.getElementById('floating-tooltip');
+  if (ft) { ft.style.opacity = '0'; ft.classList.remove('clickable'); }
+}
+
+function tipNav(dir, e) {
+  e.stopPropagation();
+  if (!_activePt) return;
+  const len = _activePt.images.length;
+  _tipIdx = (_tipIdx + dir + len) % len;
+  showTooltip(_activePt, true);
+}
+
+/* ═══ RENDER HOTSPOT ON CANVAS ═══ */
+function renderHotspot(point) {
+  const container = document.getElementById('canvas-container');
+  const hs = document.createElement('div');
+  hs.className = 'hotspot'; hs.id = `hs-${point.id}`;
+  hs.style.left = point.x + '%'; hs.style.top = point.y + '%';
+  hs.innerHTML = `<div class="hotspot-pin">${escHtml(point.label)}</div>`;
+
+  hs.addEventListener('mouseenter', () => {
+    if (!_tipExpanded) { _tipIdx = 0; showTooltip(point, false); }
+  });
+  hs.addEventListener('mouseleave', (e) => {
+    // don't hide if mouse moved into the tooltip
+    const ft = document.getElementById('floating-tooltip');
+    if (ft && ft.contains(e.relatedTarget)) return;
+    if (!_tipExpanded) hideTooltip();
+  });
+  hs.addEventListener('click', e => {
+    e.stopPropagation();
+    selectPoint(point.id);
+    if (point.images.length > 0) { _tipIdx = 0; showTooltip(point, true); }
+  });
+
+  container.appendChild(hs);
+}
+
+// Hide tooltip when clicking on canvas (not a hotspot/tooltip)
+document.getElementById('canvas-container').addEventListener('mousedown', e => {
+  const ft = document.getElementById('floating-tooltip');
+  if (!e.target.closest('.hotspot') && !e.target.closest('#floating-tooltip')) {
+    hideTooltip();
+  }
+});
+
+// Keep tooltip alive when mouse moves into it
+document.getElementById('floating-tooltip').addEventListener('mouseenter', () => {});
+document.getElementById('floating-tooltip').addEventListener('mouseleave', (e) => {
+  if (_tipExpanded) return; // stay open in expanded mode
+  const hs = e.relatedTarget?.closest?.('.hotspot');
+  if (!hs) hideTooltip();
+});
+
+function refreshTooltip(pt) {
+  if (!_activePt || _activePt.id !== pt.id) return;
+  const ft = document.getElementById('floating-tooltip');
+  if (!ft || ft.style.opacity === '0') return;
+  showTooltip(pt, _tipExpanded);
+}
+
+/* ═══ SIDEBAR ═══ */
+function renderSidebarPoint(point) {
+  document.getElementById('empty-state').style.display = 'none';
+  const list = document.getElementById('points-list');
+  const item = document.createElement('div');
+  item.className = 'point-item'; item.id = `si-${point.id}`;
+  item.innerHTML = buildSidebarItemHTML(point);
+  item.addEventListener('click', () => selectPoint(point.id));
+  list.appendChild(item);
+  bindSidebarEvents(point.id);
+}
+
+function buildSidebarItemHTML(pt) {
+  const imgs = pt.images || [];
+  const firstOv = imgs[0] ? imgs[0].overlay : { enabled: false, text: '', position: 'bottom', fontSize: '13', fontColor: '#ffffff', bgStyle: 'gradient-bottom' };
+
+  const thumbsHTML = imgs.map((img, i) => `
+    <div class="img-thumb-wrap">
+      <img class="img-thumb" src="${img.src}" alt="">
+      <button class="img-thumb-remove" onclick="removePointImage(${pt.id},${i},event)" title="Remove">✕</button>
+    </div>
+  `).join('');
+
+  return `
+    <div class="point-header">
+      <div class="point-badge">${escHtml(pt.label)}</div>
+      <input class="point-name-input" value="${escHtml(pt.name)}" placeholder="Point name" data-id="${pt.id}" data-field="name">
+      <button style="background:transparent;border:1px solid rgba(255,94,108,0.25);color:var(--red);border-radius:6px;padding:3px 7px;cursor:pointer;font-size:11px;flex-shrink:0" onclick="removePoint(${pt.id});event.stopPropagation()">✕</button>
+    </div>
+
+    ${imgs.length > 0 ? `<div class="img-count-badge">${imgs.length} photo${imgs.length>1?'s':''} · hover=preview, click=gallery</div>` : ''}
+
+    <div class="img-strip">
+      ${thumbsHTML}
+      <div class="img-add-btn" data-upload="${pt.id}">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Add</span>
+      </div>
+    </div>
+
+    ${imgs.length > 0 ? `
+    <div class="overlay-controls" onclick="event.stopPropagation()">
+      <div class="overlay-toggle-row">
+        <span class="overlay-label">📝 Text on 1st image</span>
+        <label class="toggle-switch">
+          <input type="checkbox" data-id="${pt.id}" data-field="overlay-enabled" ${firstOv.enabled ? 'checked' : ''}>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="overlay-expanded" id="ov-expanded-${pt.id}" style="display:${firstOv.enabled ? 'flex' : 'none'}">
+        <input class="overlay-input" type="text" placeholder="Overlay text" value="${escHtml(firstOv.text)}" data-id="${pt.id}" data-field="overlay-text">
+        <div class="row2">
+          <select class="overlay-input" data-id="${pt.id}" data-field="overlay-position">
+            <option value="top" ${firstOv.position==='top'?'selected':''}>Top</option>
+            <option value="middle" ${firstOv.position==='middle'?'selected':''}>Middle</option>
+            <option value="bottom" ${firstOv.position==='bottom'?'selected':''}>Bottom</option>
+          </select>
+          <select class="overlay-input" data-id="${pt.id}" data-field="overlay-bg">
+            <option value="gradient-bottom" ${firstOv.bgStyle==='gradient-bottom'?'selected':''}>Gradient btm</option>
+            <option value="gradient-top" ${firstOv.bgStyle==='gradient-top'?'selected':''}>Gradient top</option>
+            <option value="solid" ${firstOv.bgStyle==='solid'?'selected':''}>Solid dark</option>
+            <option value="none" ${firstOv.bgStyle==='none'?'selected':''}>None</option>
+          </select>
+        </div>
+        <div class="color-row">
+          <label>Size</label>
+          <select class="overlay-input" style="flex:1" data-id="${pt.id}" data-field="overlay-size">
+            <option value="11" ${firstOv.fontSize==='11'?'selected':''}>11px</option>
+            <option value="13" ${firstOv.fontSize==='13'?'selected':''}>13px</option>
+            <option value="15" ${firstOv.fontSize==='15'?'selected':''}>15px</option>
+            <option value="18" ${firstOv.fontSize==='18'?'selected':''}>18px</option>
+          </select>
+          <label>Color</label>
+          <input type="color" class="color-input" value="${firstOv.fontColor}" data-id="${pt.id}" data-field="overlay-color">
+        </div>
+      </div>
+    </div>` : ''}
+
+    <textarea class="point-desc-input" placeholder="Caption (optional)" data-id="${pt.id}" data-field="description">${escHtml(pt.description)}</textarea>
+  `;
+}
+
+function bindSidebarEvents(id) {
+  const item = document.getElementById(`si-${id}`);
+  if (!item) return;
+
+  const on = (field, ev, fn) => {
+    const el = item.querySelector(`[data-field="${field}"]`);
+    if (el) el.addEventListener(ev, e => fn(e, state.points.find(p => p.id === id)));
+  };
+
+  on('name', 'input', (e, pt) => { if (pt) { pt.name = e.target.value; refreshTooltip(pt); } });
+  on('description', 'input', (e, pt) => { if (pt) { pt.description = e.target.value; refreshTooltip(pt); } });
+
+  // overlay events (affect first image overlay)
+  on('overlay-enabled', 'change', (e, pt) => {
+    if (!pt || !pt.images[0]) return;
+    pt.images[0].overlay.enabled = e.target.checked;
+    document.getElementById(`ov-expanded-${id}`).style.display = e.target.checked ? 'flex' : 'none';
+    refreshTooltip(pt);
+  });
+  on('overlay-text', 'input', (e, pt) => { if (pt?.images[0]) { pt.images[0].overlay.text = e.target.value; refreshTooltip(pt); } });
+  on('overlay-position', 'change', (e, pt) => { if (pt?.images[0]) { pt.images[0].overlay.position = e.target.value; refreshTooltip(pt); } });
+  on('overlay-bg', 'change', (e, pt) => { if (pt?.images[0]) { pt.images[0].overlay.bgStyle = e.target.value; refreshTooltip(pt); } });
+  on('overlay-size', 'change', (e, pt) => { if (pt?.images[0]) { pt.images[0].overlay.fontSize = e.target.value; refreshTooltip(pt); } });
+  on('overlay-color', 'input', (e, pt) => { if (pt?.images[0]) { pt.images[0].overlay.fontColor = e.target.value; refreshTooltip(pt); } });
+
+  // Add image button
+  const addBtn = item.querySelector(`[data-upload="${id}"]`);
+  if (addBtn) addBtn.addEventListener('click', e => { e.stopPropagation(); triggerPointImageUpload(id); });
+}
+
+/* ═══ IMAGE UPLOAD (multiple) ═══ */
+function triggerPointImageUpload(id) {
+  const input = document.getElementById('point-img-input');
+  input.onchange = e => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    const pt = state.points.find(p => p.id === id);
+    if (!pt) return;
+    let loaded = 0;
+    files.forEach(file => {
+      const r = new FileReader();
+      r.onload = ev => {
+        pt.images.push({
+          src: ev.target.result,
+          overlay: { enabled: false, text: '', position: 'bottom', fontSize: '13', fontColor: '#ffffff', bgStyle: 'gradient-bottom' }
+        });
+        loaded++;
+        if (loaded === files.length) {
+          refreshSidebarItem(pt);
+          refreshTooltip(pt);
+          updatePublishBtn();
+        }
+      };
+      r.readAsDataURL(file);
+    });
+    input.value = '';
+  };
+  input.click();
+}
+
+function removePointImage(ptId, imgIdx, e) {
+  e.stopPropagation();
+  const pt = state.points.find(p => p.id === ptId);
+  if (!pt) return;
+  pt.images.splice(imgIdx, 1);
+  refreshSidebarItem(pt);
+  refreshTooltip(pt);
+  updatePublishBtn();
+}
+
+function refreshSidebarItem(pt) {
+  const item = document.getElementById(`si-${pt.id}`);
+  if (!item) return;
+  const wasSelected = item.classList.contains('selected');
+  item.innerHTML = buildSidebarItemHTML(pt);
+  bindSidebarEvents(pt.id);
+  if (wasSelected) item.classList.add('selected');
+}
+
+/* ═══ SELECT / REMOVE / CLEAR ═══ */
+function selectPoint(id) {
+  state.selectedPoint = id;
+  document.querySelectorAll('.hotspot').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll('.point-item').forEach(el => el.classList.remove('selected'));
+  document.getElementById(`hs-${id}`)?.classList.add('selected');
+  const si = document.getElementById(`si-${id}`);
+  if (si) { si.classList.add('selected'); si.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
+
+function removePoint(id) {
+  state.points = state.points.filter(p => p.id !== id);
+  document.getElementById(`hs-${id}`)?.remove();
+  document.getElementById(`si-${id}`)?.remove();
+  if (state.points.length === 0) { document.getElementById('empty-state').style.display = ''; state.nextLabel = 'A'; }
+  hideTooltip(); updateCountBadge(); updatePublishBtn();
+}
+
+function clearAll() {
+  if (!state.points.length) return;
+  if (!confirm('Remove all hotspot points?')) return;
+  state.points = []; state.nextLabel = 'A';
+  document.querySelectorAll('.hotspot').forEach(el => el.remove());
+  document.getElementById('points-list').innerHTML = `<div class="empty-state" id="empty-state"><div class="empty-icon">📍</div>Upload an image and click<br>to add your first hotspot</div>`;
+  hideTooltip(); updateCountBadge(); updatePublishBtn();
+}
+
+/* ═══ PUBLISHED PREVIEW ═══ */
+function buildPubTooltipHTML(pt, idx) {
+  const imgs = pt.images || [];
+  const img  = imgs[idx] || null;
+  const ov   = img ? img.overlay : { enabled: false };
+  const bgCls = ov.bgStyle === 'solid' ? 'overlay-bg-solid'
+    : ov.bgStyle === 'gradient-top'    ? 'overlay-bg-gradient-top'
+    : ov.bgStyle === 'gradient-bottom' ? 'overlay-bg-gradient-bottom'
+    : 'overlay-bg-none';
+  const hasMultiple = imgs.length > 1;
+
+  let imgHTML = '';
+  if (img) {
+    const overlayHTML = (ov.enabled && ov.text)
+      ? `<div class="tip-img-overlay pos-${ov.position} ${bgCls}" style="display:block">
+           <span class="tooltip-overlay-text" style="font-size:${ov.fontSize}px;color:${ov.fontColor}">${escHtml(ov.text)}</span>
+         </div>` : '';
+
+    imgHTML = `
+      <div class="tip-img-wrap">
+        <img class="tip-img-main" src="${img.src}" alt="">
+        ${overlayHTML}
+        ${hasMultiple && idx > 0 ? `<button class="tip-carousel-nav left show" onclick="pubNav(this,-1)">&#8249;</button>` : ''}
+        ${hasMultiple && idx < imgs.length - 1 ? `<button class="tip-carousel-nav right show" onclick="pubNav(this,1)">&#8250;</button>` : ''}
+      </div>
+      ${hasMultiple ? `<div class="tip-dots">${imgs.map((_,i)=>`<div class="tip-dot${i===idx?' active':''}"></div>`).join('')}</div>` : ''}
+    `;
+  }
+
+  return `${imgHTML}
+    <div class="tip-body">
+      <div class="tip-title" style="color:#f0eff5">${escHtml(pt.name)}</div>
+      ${pt.description ? `<div class="tip-desc" style="color:#9896a8">${escHtml(pt.description)}</div>` : ''}
+    </div>`;
+}
+
+function posPubTip(tipEl, pt, imgEl) {
+  const iw = imgEl.offsetWidth, ih = imgEl.offsetHeight;
+  const px = (pt.x/100)*iw, py = (pt.y/100)*ih;
+  const TW = 248, TH = tipEl.offsetHeight||230, gap=18;
+  const above = (py-gap-TH)>=M || !((py+gap+TH)<=(ih-M));
+  const top = above ? Math.max(M, py-gap-TH) : Math.min(py+gap, ih-TH-M);
+  const left = Math.max(M, Math.min(px-TW/2, iw-TW-M));
+  tipEl.style.left = left+'px'; tipEl.style.top = top+'px';
+  const arr = tipEl.querySelector('.pub-arrow');
+  if (arr) { arr.className='pub-arrow tip-arrow '+(above?'down':'up'); arr.style.left=Math.max(10,Math.min(px-left-6,TW-22))+'px'; }
+}
+
+function openPublished() {
+  if (!state.baseImage || !state.points.length) return;
+  const pubImg = document.getElementById('published-image');
+  pubImg.src = state.baseImage;
+
+  const doRender = () => {
+    const canvas = document.getElementById('published-canvas');
+    canvas.querySelectorAll('.pub-hotspot, .pub-ft').forEach(el => el.remove());
+
+    const ft = document.createElement('div');
+    ft.className = 'pub-tooltip pub-ft';
+    ft.style.cssText = 'opacity:0;pointer-events:all;';
+    canvas.appendChild(ft);
+
+    state.points.forEach(pt => {
+      const hs = document.createElement('div');
+      hs.className = 'pub-hotspot';
+      hs.style.left = pt.x+'%'; hs.style.top = pt.y+'%';
+      hs.innerHTML = `<div class="pub-pin">${escHtml(pt.label)}</div>`;
+      hs.dataset.ptId = pt.id;
+
+      let ptIdx = 0;
+      const updateFt = () => {
+        ft.innerHTML = buildPubTooltipHTML(pt, ptIdx) + '<div class="pub-arrow tip-arrow"></div>';
+        requestAnimationFrame(() => { posPubTip(ft, pt, pubImg); ft.style.opacity='1'; });
+        // attach nav buttons
+        ft.querySelectorAll('.tip-carousel-nav').forEach(btn => {
+          btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const d = btn.classList.contains('left') ? -1 : 1;
+            ptIdx = (ptIdx + d + pt.images.length) % pt.images.length;
+            updateFt();
+          });
+        });
+      };
+
+      hs.addEventListener('mouseenter', () => {
+        ptIdx = 0;
+        ft.innerHTML = buildPubTooltipHTML(pt, 0) + '<div class="pub-arrow tip-arrow"></div>';
+        ft.style.opacity='0';
+        requestAnimationFrame(() => { posPubTip(ft, pt, pubImg); ft.style.opacity='1'; });
+        ft.dataset.ptId = pt.id;
+      });
+
+      hs.addEventListener('mouseleave', e => {
+        if (ft.contains(e.relatedTarget)) return;
+        ft.style.opacity='0';
+      });
+
+      hs.addEventListener('click', e => {
+        e.stopPropagation();
+        if (pt.images.length > 0) updateFt();
+      });
+
+      canvas.appendChild(hs);
+    });
+
+    ft.addEventListener('mouseleave', e => {
+      if (!e.relatedTarget?.closest?.('.pub-hotspot')) ft.style.opacity='0';
+    });
+  };
+
+  if (pubImg.complete && pubImg.naturalWidth) doRender(); else pubImg.onload = doRender;
+  document.getElementById('published-overlay').classList.add('open');
+}
+
+function closePublished() { document.getElementById('published-overlay').classList.remove('open'); }
+
+/* ═══ EXPORT HTML ═══ */
+function exportHTML() {
+  const pinsJSON = JSON.stringify(state.points.map(pt => ({
+    label: pt.label, x: pt.x, y: pt.y,
+    name: pt.name, description: pt.description,
+    images: (pt.images || []).map(img => ({ src: img.src, overlay: img.overlay }))
+  })));
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Interactive Hotspot Map</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#0f0f11;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;padding:24px;}
+.wrap{position:relative;display:inline-block;}
+.base{display:block;max-width:90vw;max-height:85vh;border-radius:10px;box-shadow:0 20px 60px rgba(0,0,0,.6);}
+.pw{position:absolute;transform:translate(-50%,-50%);cursor:pointer;}
+.pin{width:32px;height:32px;border-radius:50%;background:#6c63ff;border:2.5px solid rgba(255,255,255,.95);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;font-family:monospace;box-shadow:0 0 0 4px rgba(108,99,255,.25),0 4px 12px rgba(0,0,0,.5);position:relative;z-index:2;transition:transform .15s;}
+.pin::after{content:'';position:absolute;width:100%;height:100%;border-radius:50%;background:#6c63ff;opacity:.25;animation:ping 2.5s cubic-bezier(0,0,.2,1) infinite;}
+@keyframes ping{75%,100%{transform:scale(2.2);opacity:0;}}
+.pw:hover .pin{transform:scale(1.1);}
+.ft{position:absolute;background:#1a1a22;border:1px solid rgba(255,255,255,.12);border-radius:12px;width:248px;pointer-events:all;opacity:0;transition:opacity .15s;box-shadow:0 12px 40px rgba(0,0,0,.6);z-index:100;overflow:hidden;}
+.tiw{position:relative;width:100%;}
+.tiw img{width:100%;height:134px;object-fit:cover;display:block;}
+.iovl{position:absolute;left:0;right:0;padding:7px 10px;display:none;}
+.iovl.show{display:block;}
+.iovl.pt{top:0;}.iovl.pm{top:50%;transform:translateY(-50%);text-align:center;}.iovl.pb{bottom:0;}
+.bs{background:rgba(0,0,0,.6);}.bgt{background:linear-gradient(180deg,rgba(0,0,0,.7) 0%,transparent 100%);padding-bottom:12px;}.bgb{background:linear-gradient(0deg,rgba(0,0,0,.7) 0%,transparent 100%);padding-top:12px;}
+.mb{position:absolute;bottom:7px;right:7px;background:rgba(0,0,0,.72);border:1px solid rgba(255,255,255,.18);border-radius:20px;padding:3px 9px;font-size:10px;color:#fff;cursor:pointer;display:flex;align-items:center;gap:4px;}
+.nav{position:absolute;top:50%;transform:translateY(-50%);width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);border:1px solid rgba(255,255,255,.2);color:#fff;display:none;align-items:center;justify-content:center;cursor:pointer;z-index:10;font-size:13px;}
+.nav:hover{background:rgba(108,99,255,.7);}
+.nl{left:7px;}.nr{right:7px;}
+.nav.show{display:flex;}
+.dots{display:flex;gap:4px;justify-content:center;padding:5px 0 2px;}
+.dot{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.25);}
+.dot.a{background:#6c63ff;}
+.tb{padding:10px 12px 10px;}
+.tt{font-size:14px;font-weight:600;color:#f0eff5;margin-bottom:4px;}
+.td{font-size:12px;color:#9896a8;line-height:1.55;}
+.arr{position:absolute;width:0;height:0;border:6px solid transparent;}
+.arr.up{bottom:100%;border-bottom-color:#1a1a22;}
+.arr.dn{top:100%;border-top-color:#1a1a22;}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap"><img class="base" id="bi" src="${state.baseImage}" alt=""></div>
+<script>
+var pins=${pinsJSON};
+var bi=document.getElementById('bi'),wrap=document.getElementById('wrap');
+var ft=null,curPt=null,curIdx=0,expanded=false;
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function bgc(s){return s==='solid'?'bs':s==='gradient-top'?'bgt':s==='gradient-bottom'?'bgb':'';}
+function poc(p){return p==='top'?'pt':p==='middle'?'pm':'pb';}
+function place(pt){
+  var iw=bi.offsetWidth,ih=bi.offsetHeight,px=(pt.x/100)*iw,py=(pt.y/100)*ih;
+  var TW=248,TH=ft.offsetHeight||230,gap=18,M=10;
+  var above=(py-gap-TH)>=M||!((py+gap+TH)<=(ih-M));
+  var top=above?Math.max(M,py-gap-TH):Math.min(py+gap,ih-TH-M);
+  var left=Math.max(M,Math.min(px-TW/2,iw-TW-M));
+  ft.style.left=left+'px';ft.style.top=top+'px';
+  var arr=ft.querySelector('.arr');
+  if(arr){arr.className='arr '+(above?'dn':'up');arr.style.left=Math.max(10,Math.min(px-left-6,TW-22))+'px';}
+}
+function buildTip(pt,idx,exp){
+  var imgs=pt.images||[],img=imgs[idx],ov=img?img.overlay:{};
+  var hm=imgs.length>1;
+  var ih='';
+  if(img){
+    var ovShow=ov.enabled&&ov.text;
+    ih='<div class="tiw"><img src="'+img.src+'" alt=""><div class="iovl '+poc(ov.position||'bottom')+' '+bgc(ov.bgStyle||'none')+(ovShow?' show':'')+'"><span style="display:block;font-size:'+(ov.fontSize||13)+'px;color:'+(ov.fontColor||'#fff')+';line-height:1.35">'+esc(ov.text||'')+'</span></div>';
+    if(exp&&hm){
+      if(idx>0)ih+='<button class="nav nl show" onclick="nav(-1,event)">&#8249;</button>';
+      if(idx<imgs.length-1)ih+='<button class="nav nr show" onclick="nav(1,event)">&#8250;</button>';
+    }
+    if(!exp&&hm)ih+='<div class="mb">&#9783; Click to View More</div>';
+    ih+='</div>';
+    if(hm)ih+='<div class="dots">'+imgs.map(function(_,i){return'<div class="dot'+(i===idx?' a':'')+'"></div>';}).join('')+'</div>';
+  }
+  return ih+'<div class="tb"><div class="tt">'+esc(pt.name)+'</div>'+(pt.description?'<div class="td">'+esc(pt.description)+'</div>':'')+'</div><div class="arr"></div>';
+}
+function showTip(pt,idx,exp){
+  curPt=pt;curIdx=idx;expanded=exp;
+  ft.innerHTML=buildTip(pt,idx,exp);ft.style.opacity='0';
+  requestAnimationFrame(function(){place(pt);ft.style.opacity='1';});
+}
+function nav(d,e){e.stopPropagation();if(!curPt)return;var l=curPt.images.length;curIdx=(curIdx+d+l)%l;showTip(curPt,curIdx,true);}
+function render(){
+  wrap.querySelectorAll('.pw').forEach(function(e){e.remove();});
+  if(ft)ft.remove();
+  ft=document.createElement('div');ft.className='ft';wrap.appendChild(ft);
+  pins.forEach(function(pt){
+    var el=document.createElement('div');
+    el.className='pw';el.style.left=pt.x+'%';el.style.top=pt.y+'%';
+    el.innerHTML='<div class="pin">'+esc(pt.label)+'</div>';
+    el.addEventListener('mouseenter',function(){if(!expanded){curIdx=0;showTip(pt,0,false);}});
+    el.addEventListener('mouseleave',function(e){if(ft.contains(e.relatedTarget))return;if(!expanded)ft.style.opacity='0';});
+    el.addEventListener('click',function(e){e.stopPropagation();if(pt.images&&pt.images.length)showTip(pt,0,true);});
+    wrap.appendChild(el);
+  });
+  wrap.addEventListener('click',function(e){
+    if(!e.target.closest('.pw')&&!e.target.closest('.ft')){ft.style.opacity='0';expanded=false;}
+  });
+  ft.addEventListener('mouseleave',function(e){if(!e.relatedTarget||!e.relatedTarget.closest('.pw'))if(!expanded)ft.style.opacity='0';});
+}
+if(bi.complete&&bi.naturalWidth)render();else bi.onload=render;
+window.addEventListener('resize',function(){if(ft)ft.style.opacity='0';expanded=false;});
+<\/script>
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'hotspot-map.html';
+  a.click();
+}
+
+/* ═══ HELPERS ═══ */
+function updateCountBadge() {
+  const badge = document.getElementById('point-count-badge');
+  const n = state.points.length;
+  badge.style.display = n > 0 ? '' : 'none';
+  badge.textContent = `${n} point${n !== 1 ? 's' : ''}`;
+}
+function updatePublishBtn() {
+  document.getElementById('publish-btn').disabled = !state.baseImage || !state.points.length;
+}
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+window.addEventListener('resize', () => hideTooltip());
+document.getElementById('base-image').addEventListener('load', hideTooltip);
+document.getElementById('published-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('published-overlay')) closePublished();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+2026-06-26 10:06:52 Folder organizer started. DryRun=False MinimumAgeHours=24
+2026-06-26 10:06:52 Scanning Desktop root: C:\Users\mohdl\OneDrive\Desktop
+2026-06-26 10:06:52 Skipped hidden/system file: C:\Users\mohdl\OneDrive\Desktop\desktop.ini
+2026-06-26 10:06:52 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Excel.lnk
+2026-06-26 10:06:52 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\PowerPoint.lnk
+2026-06-26 10:06:52 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Word.lnk
+2026-06-26 10:06:52 Scanning Downloads root: C:\Users\mohdl\Downloads
+2026-06-26 10:06:53 Skipped hidden/system file: C:\Users\mohdl\Downloads\desktop.ini
+2026-06-26 10:06:53 Skipped recent file: C:\Users\mohdl\Downloads\document-studio.html
+2026-06-26 10:06:53 Skipped recent file: C:\Users\mohdl\Downloads\Receipt-2003-0293-0381.pdf
+2026-06-26 10:06:53 Folder organizer finished. Log=C:\Users\mohdl\.openclaw\workspace\logs\folder-organizer-2026-06-26_100652.log

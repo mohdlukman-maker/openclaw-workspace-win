@@ -1,0 +1,30 @@
+2026-06-27 11:28:47 Folder organizer started. DryRun=False MinimumAgeHours=24
+2026-06-27 11:28:47 Scanning Desktop root: C:\Users\mohdl\OneDrive\Desktop
+2026-06-27 11:28:47 Skipped hidden/system file: C:\Users\mohdl\OneDrive\Desktop\desktop.ini
+2026-06-27 11:28:47 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Excel.lnk
+2026-06-27 11:28:47 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\PowerPoint.lnk
+2026-06-27 11:28:47 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Word.lnk
+2026-06-27 11:28:48 Scanning Downloads root: C:\Users\mohdl\Downloads
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\Blackfox.png
+2026-06-27 11:28:48 Skipped hidden/system file: C:\Users\mohdl\Downloads\desktop.ini
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\document-studio.html -> C:\Users\mohdl\Downloads\10 Web Code Data\document-studio.html
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\EOT_No6_Hospital_Petra_Jaya.pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\EOT_No6_Hospital_Petra_Jaya.pdf
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\EOT_No6_Hospital_Petra_Jaya.pptx -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\EOT_No6_Hospital_Petra_Jaya.pptx
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\EOT_No6_Hospital_Petra_Jaya_r2.pdf
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\EOT_No6_Hospital_Petra_Jaya_r2.pptx -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\EOT_No6_Hospital_Petra_Jaya_r2.pptx
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\files (1).zip -> C:\Users\mohdl\Downloads\09 Archives Compressed\files (1).zip
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\files.zip -> C:\Users\mohdl\Downloads\09 Archives Compressed\files.zip
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\FLOW_CHART_2018_Page_1_1200DPI.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\FLOW_CHART_2018_Page_1_1200DPI.png
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\FLOW_CHART_2021_Page_1_1200DPI.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\FLOW_CHART_2021_Page_1_1200DPI.png
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\HPJ-PPK2_BFESB_PEMILIHAN OPSYEN KERJA PAGAR PERIMETER.pdf
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\jkr_letter_generator.html
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\jkr_letter_template.html
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\MAKLUMBALAS PERTINDIHAN SEMPADAN PAGAR PERIMETER ANTARA TAPAK PROJEK DAN JABATAN KESIHATAN NEGERI SARAWAK (JKNS).pdf
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\MyGovUC_Mail_BKRP_Page_1_1200DPI.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\MyGovUC_Mail_BKRP_Page_1_1200DPI.png
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\MyGovUC_Mail_BKRP_Page_2_1200DPI.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\MyGovUC_Mail_BKRP_Page_2_1200DPI.png
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\MyGovUC_Mail_BKRP_Page_3_1200DPI.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\MyGovUC_Mail_BKRP_Page_3_1200DPI.png
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\MyGovUC_Mail_BKRP_Page_4_1200DPI.png -> C:\Users\mohdl\Downloads\07 Images Design Assets\MyGovUC_Mail_BKRP_Page_4_1200DPI.png
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\Picture1.png
+2026-06-27 11:28:48 Moved: C:\Users\mohdl\Downloads\Receipt-2003-0293-0381.pdf -> C:\Users\mohdl\Downloads\11 Finance Trading\Receipt-2003-0293-0381 (2).pdf
+2026-06-27 11:28:48 Skipped recent file: C:\Users\mohdl\Downloads\SK-PETRAJAYA-SITE-JKR-2024 (022).pdf
+2026-06-27 11:28:48 Folder organizer finished. Log=C:\Users\mohdl\.openclaw\workspace\logs\folder-organizer-2026-06-27_112847.log

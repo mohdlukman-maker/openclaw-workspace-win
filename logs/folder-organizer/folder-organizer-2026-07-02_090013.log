@@ -1,0 +1,22 @@
+2026-07-02 09:00:13 Folder organizer started. DryRun=False MinimumAgeHours=24
+2026-07-02 09:00:14 Scanning Desktop root: C:\Users\mohdl\OneDrive\Desktop
+2026-07-02 09:00:15 Skipped hidden/system file: C:\Users\mohdl\OneDrive\Desktop\desktop.ini
+2026-07-02 09:00:16 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Excel.lnk
+2026-07-02 09:00:16 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\PowerPoint.lnk
+2026-07-02 09:00:18 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Word.lnk
+2026-07-02 09:00:18 Scanning Downloads root: C:\Users\mohdl\Downloads
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\ChatGPT Image Jul 1, 2026, 11_09_49 AM.png
+2026-07-02 09:00:19 Skipped hidden/system file: C:\Users\mohdl\Downloads\desktop.ini
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\GANESH BEPARI.pdf
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\Gemini_Generated_Image_14twix14twix14tw.png
+2026-07-02 09:00:19 Moved: C:\Users\mohdl\Downloads\jkr_letter_generator.html -> C:\Users\mohdl\Downloads\10 Web Code Data\jkr_letter_generator (1).html
+2026-07-02 09:00:19 Moved: C:\Users\mohdl\Downloads\Kewangan Tahun 2026 R6.pdf -> C:\Users\mohdl\Downloads\Documents\Kewangan Tahun 2026 R6.pdf
+2026-07-02 09:00:19 Moved: C:\Users\mohdl\Downloads\MAKLUMBALAS PERTINDIHAN SEMPADAN PAGAR PERIMETER ANTARA TAPAK PROJEK DAN JABATAN KESIHATAN NEGERI SARAWAK (JKNS).pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\MAKLUMBALAS PERTINDIHAN SEMPADAN PAGAR PERIMETER ANTARA TAPAK PROJEK DAN JABATAN KESIHATAN NEGERI SARAWAK (JKNS) (1).pdf
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\MD RUBEL AMIN.pdf
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\MD SHAKIL HOSSAIN.pdf
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\NIMAI NAG.pdf
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\PRODIP PATRA.pdf
+2026-07-02 09:00:19 Skipped recent file: C:\Users\mohdl\Downloads\SAGOR MAHMUD.pdf
+2026-07-02 09:00:19 Moved: C:\Users\mohdl\Downloads\SK-PETRAJAYA-SITE-JKR-2024 (022).pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\SK-PETRAJAYA-SITE-JKR-2024 (022) (1).pdf
+2026-07-02 09:00:20 Moved: C:\Users\mohdl\Downloads\WhatsApp Image 2026-06-27 at 16.10.04.jpeg -> C:\Users\mohdl\Downloads\07 Images Design Assets\WhatsApp Image 2026-06-27 at 16.10.04.jpeg
+2026-07-02 09:00:20 Folder organizer finished. Log=C:\Users\mohdl\.openclaw\workspace\logs\folder-organizer-2026-07-02_090013.log

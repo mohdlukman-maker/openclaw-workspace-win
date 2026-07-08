@@ -1,0 +1,18 @@
+2026-06-25 15:07:28 Folder organizer started. DryRun=True MinimumAgeHours=24
+2026-06-25 15:07:28 Scanning Desktop root: C:\Users\mohdl\OneDrive\Desktop
+2026-06-25 15:07:28 Skipped hidden/system file: C:\Users\mohdl\OneDrive\Desktop\desktop.ini
+2026-06-25 15:07:28 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Excel.lnk
+2026-06-25 15:07:28 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\PowerPoint.lnk
+2026-06-25 15:07:28 Skipped by rule: C:\Users\mohdl\OneDrive\Desktop\Word.lnk
+2026-06-25 15:07:28 Scanning Downloads root: C:\Users\mohdl\Downloads
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\20260515_HPJ - Minit Mesyuarat Tapak_No 50.pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\20260515_HPJ - Minit Mesyuarat Tapak_No 50.pdf
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\20260515_HPJ_Minit_Mesyuarat_Tapak_No50_2026_Highlighted.pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\20260515_HPJ_Minit_Mesyuarat_Tapak_No50_2026_Highlighted.pdf
+2026-06-25 15:07:28 Skipped hidden/system file: C:\Users\mohdl\Downloads\desktop.ini
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\Invoice-B7ED70BC-0001.pdf -> C:\Users\mohdl\Downloads\11 Finance Trading\Invoice-B7ED70BC-0001.pdf
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\petra_project_governed_report_2026-06-19.pdf -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\petra_project_governed_report_2026-06-19.pdf
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\Receipt-2003-0293-0381 (1).pdf -> C:\Users\mohdl\Downloads\11 Finance Trading\Receipt-2003-0293-0381 (1).pdf
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\Receipt-2003-0293-0381.pdf -> C:\Users\mohdl\Downloads\11 Finance Trading\Receipt-2003-0293-0381.pdf
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\Resume_Lukman.docx -> C:\Users\mohdl\Downloads\Documents\Resume_Lukman.docx
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\Resume_Lukman.pdf -> C:\Users\mohdl\Downloads\Documents\Resume_Lukman.pdf
+2026-06-25 15:07:28 DRYRUN move: C:\Users\mohdl\Downloads\UPDATED STATUS MEDICAL EQUIPMENTS G1 - HPJ.xlsx -> C:\Users\mohdl\Downloads\03 Construction Engineering HPJ\UPDATED STATUS MEDICAL EQUIPMENTS G1 - HPJ.xlsx
+2026-06-25 15:07:28 Folder organizer finished. Log=C:\Users\mohdl\.openclaw\workspace\logs\folder-organizer-2026-06-25_150728.log

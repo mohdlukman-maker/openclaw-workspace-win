@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(python *)",
+      "Bash(py *)",
+      "Bash(powershell -File *)",
+      "Bash(npm run *)"
+    ],
+    "deny": [
+      "Read(../openclaw.json)",
+      "Edit(../openclaw.json)",
+      "Read(../secrets/**)",
+      "Edit(../secrets/**)",
+      "Read(../agents/**)",
+      "Edit(../agents/**)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Read(./**/*.key)",
+      "Edit(./**/*.key)",
+      "Read(./**/*.token)",
+      "Edit(./**/*.token)",
+      "Read(./**/*.sqlite)",
+      "Edit(./**/*.sqlite)",
+      "Bash(rm -rf *)",
+      "Bash(del /s *)",
+      "Bash(format *)"
+    ]
+  }
+}

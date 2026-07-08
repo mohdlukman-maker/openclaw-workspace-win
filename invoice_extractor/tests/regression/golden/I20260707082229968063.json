@@ -1,0 +1,41 @@
+{
+  "document_type": "invoice",
+  "tax_invoice": "TG-K08941",
+  "invoice_date": "2026-07-01",
+  "supplier_name": "TUJU GALAKSI SDN BHD",
+  "contact_person": "Azyan Nasuha 016-8873726",
+  "confidence": 0.96,
+  "notes": "Image is upside down in some crops, but the main invoice is readable. Tax invoice number and date were taken from the invoice header. Line items transcribed from the product table; all three rows are visible. Reused prior extraction for identical image.",
+  "line_items": [
+    {
+      "item_no": "1",
+      "description": "3/4\" x 1/2\" poly reducing bush",
+      "quantity": 50.0,
+      "quantity_unit": "pcs",
+      "unit_price": 0.85,
+      "line_total": 42.5
+    },
+    {
+      "item_no": "2",
+      "description": "3\" Dome Grating (White)",
+      "quantity": 20.0,
+      "quantity_unit": "pcs",
+      "unit_price": 13.5,
+      "line_total": 270.0
+    },
+    {
+      "item_no": "3",
+      "description": "110mm (4\") uPVC Dome filter \"Exact\"",
+      "quantity": 20.0,
+      "quantity_unit": "pcs",
+      "unit_price": 16.6,
+      "line_total": 332.0
+    }
+  ],
+  "extraction_method": "ai_primary",
+  "local_ocr_verification": {
+    "accepted": false,
+    "reason": "New document format detected. I do not have a local OCR profile for this document yet. Registration is not available in Phase 2, so please send a known TUJU D.O/invoice format for now."
+  },
+  "source_image_hash": "c6f3383fc264f8056ef36bc26504569b3f29d1c1163c346004f8f7943606990d"
+}

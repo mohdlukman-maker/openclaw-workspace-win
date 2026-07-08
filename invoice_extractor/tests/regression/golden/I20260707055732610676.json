@@ -1,0 +1,36 @@
+{
+  "document_type": "delivery_order",
+  "tax_invoice": "TG-K08935",
+  "invoice_date": "2026-07-01",
+  "supplier_name": "TUJU GALAKSI SDN BHD",
+  "contact_person": "Zukiram 019-9848812",
+  "confidence": 0.95,
+  "notes": null,
+  "line_items": [
+    {
+      "item_no": "1",
+      "description": "WBP Plywood 12mmx 4' x 8' (Black glue), 85pcs/bdl",
+      "quantity": 85.0,
+      "quantity_unit": "pcs",
+      "unit_price": null,
+      "line_total": null
+    },
+    {
+      "item_no": "2",
+      "description": "Kayu 1\" x 2\" x 8'",
+      "quantity": 1.0,
+      "quantity_unit": "ton",
+      "unit_price": null,
+      "line_total": null
+    }
+  ],
+  "extraction_method": "ai_primary",
+  "local_ocr_verification": {
+    "accepted": true,
+    "confidence": 72.9,
+    "reason": "TUJU focused OCR parsed with confidence 72.9; review carefully before saving.",
+    "tax_invoice": "TG-K08935",
+    "invoice_date": "2026-07-01"
+  },
+  "source_image_hash": "9410faa385d7401ba3a287c286be2572af76005c92bf6f215840a509878026e9"
+}

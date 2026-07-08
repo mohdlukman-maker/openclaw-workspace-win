@@ -1,0 +1,20 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.log
+logs/
+.pytest_cache/
+
+# Runtime data
+/data/images/
+/data/enhanced/
+/data/ocr/
+/data/extractions/
+/data/pending/
+/data/cleanup_archive/
+/data/reset_archive/
+
+# Generated / backup packages
+/transfer_packages/
+/backups/

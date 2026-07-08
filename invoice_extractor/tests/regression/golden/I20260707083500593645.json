@@ -1,0 +1,44 @@
+{
+  "document_type": "invoice",
+  "tax_invoice": "TG-K08941",
+  "invoice_date": "2026-07-01",
+  "supplier_name": "TUJU GALAKSI SDN BHD",
+  "contact_person": "Azyan Nasuha 016-8873726",
+  "confidence": 1,
+  "notes": null,
+  "line_items": [
+    {
+      "item_no": "1",
+      "description": "3/4\" x 1/2\" poly reducing bush",
+      "quantity": 50.0,
+      "quantity_unit": "pcs",
+      "unit_price": 0.85,
+      "line_total": 42.5
+    },
+    {
+      "item_no": "2",
+      "description": "3\" Dome Grating (White)",
+      "quantity": 20.0,
+      "quantity_unit": "pcs",
+      "unit_price": 13.5,
+      "line_total": 270.0
+    },
+    {
+      "item_no": "3",
+      "description": "110mm (4\") uPVC Dome filter \"Exact\"",
+      "quantity": 20.0,
+      "quantity_unit": "pcs",
+      "unit_price": 16.6,
+      "line_total": 332.0
+    }
+  ],
+  "extraction_method": "ai_primary",
+  "local_ocr_verification": {
+    "accepted": false,
+    "confidence": 37.0,
+    "reason": "TUJU focused OCR confidence 37.0 is below 55.0.",
+    "tax_invoice": null,
+    "invoice_date": null
+  },
+  "source_image_hash": "38f4ab176d6e49e7fe248335aab4bfb3783108f923fc18a5a4e0986963ed7efa"
+}

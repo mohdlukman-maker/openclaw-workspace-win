@@ -1,0 +1,36 @@
+# Secrets & credentials
+.env
+.env.*
+*.key
+*.token
+*.sqlite
+credentials.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node
+node_modules/
+
+# Business / runtime data (not code) — keep real records out of git history
+invoice_extractor/data/
+invoice_extractor/logs/
+invoice_extractor/enhanced_outputs/
+invoice_extractor/transfer_packages/
+receipt_extractor/data/
+receipt_extractor/.venv/
+receipt_extractor/*.log
+
+# Stray large/binary files
+invoice_extractor backup.zip
+*.zip
+
+# Local run logs
+logs/*.log
+
+# OS cruft
+Thumbs.db
+desktop.ini
