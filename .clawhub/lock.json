@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "skills": {
+    "@spclaudehome/skill-vetter": {
+      "version": "1.0.0",
+      "installedAt": 1783687964647,
+      "ownerHandle": "spclaudehome"
+    },
+    "@tokauthai/skillscan": {
+      "version": "1.1.6",
+      "installedAt": 1783687969313,
+      "ownerHandle": "tokauthai"
+    },
+    "@steipete/weather": {
+      "version": "1.0.0",
+      "installedAt": 1783687974781,
+      "ownerHandle": "steipete"
+    },
+    "@steipete/obsidian": {
+      "version": "1.0.0",
+      "installedAt": 1783687979482,
+      "ownerHandle": "steipete"
+    },
+    "@oswalpalash/ontology": {
+      "version": "1.0.4",
+      "installedAt": 1783687984823,
+      "ownerHandle": "oswalpalash"
+    },
+    "@pskoett/self-improving-agent": {
+      "version": "4.0.1",
+      "installedAt": 1783687990281,
+      "ownerHandle": "pskoett"
+    },
+    "@steipete/notion": {
+      "version": "1.0.0",
+      "installedAt": 1783687993790,
+      "ownerHandle": "steipete"
+    },
+    "@steipete/github": {
+      "version": "1.0.0",
+      "installedAt": 1783687999147,
+      "ownerHandle": "steipete"
+    },
+    "@matrixy/agent-browser-clawdbot": {
+      "version": "0.1.0",
+      "installedAt": 1783688004948,
+      "ownerHandle": "matrixy"
+    },
+    "@halthelobster/proactive-agent": {
+      "version": "3.1.0",
+      "installedAt": 1783688011025,
+      "ownerHandle": "halthelobster"
+    }
+  }
+}

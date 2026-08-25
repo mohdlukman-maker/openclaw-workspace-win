@@ -5,6 +5,7 @@
 *.token
 *.sqlite
 credentials.json
+scripts/netlify-site.local.json
 
 # Python
 __pycache__/
@@ -30,7 +31,11 @@ invoice_extractor backup.zip
 
 # Local run logs
 logs/*.log
+projects/affiliate-builder-ui/*.log
 
 # OS cruft
 Thumbs.db
 desktop.ini
+
+# Netlify CLI local state (machine-specific, regenerates on deploy)
+.netlify/

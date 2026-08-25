@@ -9,7 +9,17 @@
       "Bash(python *)",
       "Bash(py *)",
       "Bash(powershell -File *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(powershell -NoProfile -Command \"\\(Get-Item 'C:\\\\Users\\\\mohdl\\\\.openclaw\\\\workspace\\\\invoice_extractor\\\\logs\\\\invoice_bot.log'\\).LastWriteTime\")",
+      "Bash(python -m py_compile invoice_bot.py document_profiles.py profile_generator.py profile_management.py registration_flow.py registration_state.py)",
+      "Bash(python -m unittest discover -s tests -v)",
+      "Bash(python -c ' *)",
+      "Bash(grep -n \"class APIStatusError\" -A 15 \"C:\\\\Users\\\\mohdl\\\\AppData\\\\Roaming\\\\Python\\\\Python314\\\\site-packages\\\\openai\\\\_exceptions.py\")",
+      "Bash(python -m py_compile invoice_bot.py)",
+      "Bash(python -m unittest tests.test_invoice_helpers -v)",
+      "Bash(powershell -NoProfile -Command \"\\(Get-ScheduledTaskInfo -TaskName 'Invoice Extractor Bot'\\).LastRunTime; \\(Get-ScheduledTask -TaskName 'Invoice Extractor Bot'\\).State\")",
+      "Bash(powershell -NoProfile -Command \"Get-Process python -ErrorAction SilentlyContinue | Select-Object Id, StartTime\")",
+      "Bash(powershell -NoProfile -Command ' *)"
     ],
     "deny": [
       "Read(../openclaw.json)",

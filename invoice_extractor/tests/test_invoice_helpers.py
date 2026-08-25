@@ -14,12 +14,14 @@ from invoice_bot import (
     DOCUMENT_TYPE_INVOICE,
     UNKNOWN_DOCUMENT_FORMAT_MESSAGE,
     apply_manual_po_running_number,
+    classify_document,
     compare_and_merge_documents,
     file_sha256,
     extraction_review_warnings,
+    is_openai_auth_error,
+    is_openai_credit_error,
     load_cached_extraction,
     manual_po_running_number_is_available,
-    match_known_document_profile,
     normalize_ai_date,
     normalize_ai_document_number,
     validate_ai_extraction,
@@ -256,19 +258,26 @@ class PairMergeTests(unittest.TestCase):
 
 class LocalOCRParsingTests(unittest.TestCase):
     def test_document_profile_matches_tuju_delivery_order(self) -> None:
-        profile = match_known_document_profile("TUJU GALAKSI SDN BHD Delivery Order No. TG-K08849")
-
-        self.assertIsNotNone(profile)
-        self.assertEqual(profile.key, "tuju_delivery_order")
+        profile_id, status, score, runner_up = classify_document(
+            "TUJU GALAKSI SDN BHD Delivery Order No. TG-K08849"
+        )
+        self.assertEqual(profile_id, "tuju_galaxy_delivery_order")
+        self.assertEqual(status, "matched")
+        self.assertGreaterEqual(score, 6)
 
     def test_document_profile_matches_tuju_invoice(self) -> None:
-        profile = match_known_document_profile("Blackfox Engineering Sdn Bhd TAXINVOICE :TG-K08849")
-
-        self.assertIsNotNone(profile)
-        self.assertEqual(profile.key, "tuju_invoice")
+        profile_id, status, score, runner_up = classify_document(
+            "Blackfox Engineering Sdn Bhd TAXINVOICE :TG-K08849"
+        )
+        self.assertEqual(profile_id, "tuju_galaxy_invoice")
+        self.assertEqual(status, "matched")
+        self.assertGreaterEqual(score, 6)
 
     def test_document_profile_rejects_unknown_format(self) -> None:
-        self.assertIsNone(match_known_document_profile("Random receipt without known TUJU markers"))
+        profile_id, status, score, runner_up = classify_document(
+            "Random receipt without known TUJU markers"
+        )
+        self.assertEqual(status, "below_threshold")
         self.assertIn("New document format detected", UNKNOWN_DOCUMENT_FORMAT_MESSAGE)
 
     def test_tuju_detection_tolerates_ocr_zero_letter_confusion(self) -> None:
@@ -405,6 +414,35 @@ class LocalOCRParsingTests(unittest.TestCase):
 
         self.assertTrue(any("Low OCR confidence" in warning for warning in warnings))
         self.assertTrue(any("Invoice total check differs" in warning for warning in warnings))
+
+
+class OpenAIErrorClassificationTests(unittest.TestCase):
+    @staticmethod
+    def _api_status_error(status_code: int, message: str = "error"):
+        import httpx
+        from openai import APIStatusError
+
+        request = httpx.Request("POST", "https://openrouter.ai/api/v1/chat/completions")
+        response = httpx.Response(status_code, request=request, json={"error": {"message": message}})
+        return APIStatusError(message, response=response, body=None)
+
+    def test_credit_error_detects_402(self) -> None:
+        exc = self._api_status_error(402, "insufficient credits")
+        self.assertTrue(is_openai_credit_error(exc))
+        self.assertFalse(is_openai_auth_error(exc))
+
+    def test_credit_error_ignores_other_status_codes(self) -> None:
+        exc = self._api_status_error(429, "rate limited")
+        self.assertFalse(is_openai_credit_error(exc))
+        self.assertFalse(is_openai_auth_error(exc))
+
+    def test_auth_error_still_detected(self) -> None:
+        from openai import AuthenticationError
+
+        exc = self._api_status_error(401, "bad key")
+        auth_exc = AuthenticationError(str(exc), response=exc.response, body=None)
+        self.assertTrue(is_openai_auth_error(auth_exc))
+        self.assertFalse(is_openai_credit_error(auth_exc))
 
 
 if __name__ == "__main__":

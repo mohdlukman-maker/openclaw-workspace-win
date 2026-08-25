@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Affiliate Builder</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local tool</p>
+        <h1>Affiliate Builder</h1>
+      </div>
+      <div class="status" id="status">Checking Netlify...</div>
+    </header>
+
+    <main class="layout">
+      <section class="panel">
+        <div class="section-title">
+          <span>1</span>
+          <h2>Search or Paste Product</h2>
+        </div>
+
+        <label>
+          Product category
+          <input id="category" value="iphone case" placeholder="e.g. phone case, home organizer, car accessory">
+        </label>
+
+        <div class="segmented" role="radiogroup" aria-label="Viral period">
+          <label><input type="radio" name="period" value="day"> Previous day</label>
+          <label><input type="radio" name="period" value="week" checked> Previous week</label>
+          <label><input type="radio" name="period" value="month"> Previous month</label>
+        </div>
+
+        <button class="button secondary" id="searchBtn" type="button">Search Viral Products</button>
+
+        <div class="results" id="results"></div>
+
+        <div class="divider"></div>
+
+        <label>
+          Or paste product link
+          <input id="productUrl" placeholder="https://shopee.com.my/...">
+        </label>
+
+        <label>
+          Product title
+          <input id="productTitle" placeholder="Used for page headline and image search">
+        </label>
+
+        <label>
+          Affiliate link
+          <input id="affiliateUrl" placeholder="Leave empty for testing, paste Shopee affiliate link later">
+        </label>
+
+        <button class="button primary" id="generateBtn" type="button">Generate HTML</button>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="section-title">
+          <span>2</span>
+          <h2>Preview and Publish</h2>
+        </div>
+
+        <div class="actions">
+          <button class="button secondary" id="refreshPreviewBtn" type="button">Refresh Preview</button>
+          <button class="button publish" id="publishBtn" type="button">Publish to Netlify</button>
+        </div>
+
+        <div class="message" id="message">Generate a page first.</div>
+        <iframe id="preview" title="Generated affiliate page preview"></iframe>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

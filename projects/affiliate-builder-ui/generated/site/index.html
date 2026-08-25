@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ms">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CREALITY Ender 3 / Ender 3 Pro / Ender 3 V2 / Ender 3</title>
+    <meta name="description" content="CREALITY Ender 3 / Ender 3 Pro / Ender 3 V2 / Ender 3 - semak pilihan, harga dan review di Shopee.">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#top"><span class="brand-mark">AP</span><span>Affiliate Pick</span></a>
+      <nav><a href="#produk">Produk</a><a href="#komen">Komen</a><a href="#faq">FAQ</a></nav>
+    </header>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Produk pilihan</p>
+          <h1>CREALITY Ender 3 / Ender 3 Pro / Ender 3 V2 / Ender 3</h1>
+          <p class="lead">Pilihan 3d printer untuk anda semak terus di Shopee. Pastikan variasi, harga, penghantaran dan <em>review</em> sesuai sebelum beli.</p>
+          <div class="hero-actions">
+            <a class="button primary" data-affiliate-link href="#" rel="nofollow sponsored noopener" target="_blank">Lihat di Shopee</a>
+            <a class="button secondary" href="#produk">Semak dahulu</a>
+          </div>
+        </div>
+        <section class="product-gallery">
+          <div class="slider" data-slider>
+            <div class="slides">
+              <figure class="slide is-active">
+                <img src="assets/product/creality-ender-3-ender-3-pro-ender-3-v2-ender-3-01.jpg" alt="CREALITY Ender 3 / Ender 3 Pro / Ender 3 V2 / Ender 3">
+              </figure>
+            </div>
+            <button class="slider-button prev" type="button" data-prev aria-label="Gambar sebelum">‹</button>
+            <button class="slider-button next" type="button" data-next aria-label="Gambar seterusnya">›</button>
+            <div class="slider-dots"><button type="button" class="is-active" data-dot="0" aria-label="Gambar 1"></button></div>
+          </div>
+        </section>
+      </section>
+      <section id="produk" class="signal-strip">
+        <div><strong>Sesuai</strong><span>Sesuai untuk pembelian Shopee yang ringkas.</span></div><div><strong>Semak</strong><span>Semak harga semasa dan kos penghantaran.</span></div><div><strong>Pilih</strong><span>Pilih penjual dengan rating yang anda selesa.</span></div>
+      </section>
+      <section class="section two-column">
+        <div><p class="eyebrow">Kenapa semak</p><h2>Semak pilihan, harga dan review sebelum beli</h2></div>
+        <div class="copy-stack">
+          <p>Halaman ini dibuat untuk bantu anda lihat produk dengan cepat sebelum pergi ke Shopee.</p>
+          <p>Tiada tuntutan berlebihan, tiada diskaun palsu, dan tiada testimoni rekaan.</p>
+          <a class="text-link" data-affiliate-link href="#" rel="nofollow sponsored noopener" target="_blank">Buka Shopee</a>
+        </div>
+      </section>
+      <section id="komen" class="section reviews">
+        <div class="section-heading"><p class="eyebrow">Komen pembeli</p><h2>Apa yang patut diperhatikan</h2></div>
+        <div class="review-grid">
+          <article><div class="stars">★★★★★</div><p>Lihat gambar <em>review</em> untuk bandingkan rupa sebenar.</p></article>
+          <article><div class="stars">★★★★★</div><p>Semak komen tentang kualiti, saiz dan penghantaran.</p></article>
+          <article><div class="stars">★★★★★</div><p>Pilih variasi yang betul sebelum <em>checkout</em>.</p></article>
+        </div>
+      </section>
+      <section id="faq" class="section faq">
+        <div class="section-heading"><p class="eyebrow">Sebelum checkout</p><h2>Semak ringkas</h2></div>
+        <details open><summary>Apa perlu saya semak?</summary><p>Baca penerangan penjual, variasi produk dan gambar review sebelum checkout.</p></details>
+        <details><summary>Adakah link affiliate sudah dipasang?</summary><p>Belum. Butang CTA dikosongkan untuk preview dan boleh diisi kemudian.</p></details>
+      </section>
+    </main>
+    <footer><p>Affiliate disclosure: halaman ini mungkin menerima komisen kecil daripada pembelian melalui pautan Shopee, tanpa kos tambahan kepada anda.</p></footer>
+    <script>
+      const AFFILIATE_URL = "";
+      document.querySelectorAll("[data-affiliate-link]").forEach((link) => {
+        if (AFFILIATE_URL.trim()) { link.href = AFFILIATE_URL; return; }
+        link.href = "#"; link.setAttribute("aria-disabled", "true"); link.addEventListener("click", (event) => event.preventDefault());
+      });
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const dots = Array.from(document.querySelectorAll("[data-dot]"));
+      let activeSlide = 0; let autoTimer;
+      function showSlide(nextIndex, direction = "next") {
+        const current = activeSlide; activeSlide = (nextIndex + slides.length) % slides.length;
+        slides.forEach((slide, index) => {
+          slide.classList.remove("is-active", "from-right", "from-left", "to-left", "to-right");
+          if (index === current && index !== activeSlide) slide.classList.add(direction === "next" ? "to-left" : "to-right");
+          if (index === activeSlide) slide.classList.add("is-active", direction === "next" ? "from-right" : "from-left");
+        });
+        dots.forEach((dot, index) => dot.classList.toggle("is-active", index === activeSlide));
+      }
+      function restartAutoSlide() { clearInterval(autoTimer); autoTimer = setInterval(() => showSlide(activeSlide + 1, "next"), 4200); }
+      document.querySelector("[data-prev]").addEventListener("click", () => { showSlide(activeSlide - 1, "prev"); restartAutoSlide(); });
+      document.querySelector("[data-next]").addEventListener("click", () => { showSlide(activeSlide + 1, "next"); restartAutoSlide(); });
+      dots.forEach((dot) => dot.addEventListener("click", () => { const nextIndex = Number(dot.dataset.dot); showSlide(nextIndex, nextIndex > activeSlide ? "next" : "prev"); restartAutoSlide(); }));
+      restartAutoSlide();
+    </script>
+  </body>
+</html>

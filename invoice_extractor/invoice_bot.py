@@ -16,17 +16,19 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import AsyncOpenAI, AuthenticationError
+from openai import APIStatusError, AsyncOpenAI, AuthenticationError
 from openpyxl import Workbook, load_workbook
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageStat
-from telegram import BotCommand, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError, TimedOut
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 import document_profiles
 import image_processor
 import ocr_enhanced
 import pending_store
+import profile_management
+import registration_flow
 import retention
 import suppliers
 from procurement_query import answer_question, format_table
@@ -75,6 +77,169 @@ MR_SHEET_NAME = "MATERIAL REQUISITION"
 MR_FIRST_ITEM_ROW = 19
 MR_LAST_ITEM_ROW = 40
 DEFAULT_EXPORT_PDF = True
+LEGACY_TUJU_PIPELINE_DEFAULT = False
+
+
+# ── Profile extraction helpers ────────────────────────────────────────
+PROFILE_PROFILES_DIR = BASE_DIR / "data" / "document_profiles"
+
+
+def profile_by_id(profile_id: str) -> document_profiles.DocumentProfile | None:
+    """Look up a profile by its id from the loaded profiles."""
+    for p in get_profiles():
+        if p.id == profile_id:
+            return p
+    return None
+
+
+def create_profile_crops(image_path: Path, profile: document_profiles.DocumentProfile) -> dict[str, Path]:
+    """Create cropped images from profile field crop_hints.
+
+    Returns a dict of {field_name: cropped_path} for fields that have crop_hints.
+    Falls back to an empty dict if no fields have hints.
+    """
+    ENHANCED_DIR.mkdir(parents=True, exist_ok=True)
+    crops: dict[str, Path] = {}
+    if not profile.fields:
+        return crops
+    with Image.open(image_path) as image:
+        for field in profile.fields:
+            if field.crop_hint is None:
+                continue
+            x1, y1, x2, y2 = field.crop_hint
+            path = ENHANCED_DIR / f"{image_path.stem}_{profile.id}_{field.name}.jpg"
+            save_relative_crop(image, path, (x1, y1, x2, y2), scale=2, contrast=1.9)
+            crops[field.name] = path
+    return crops
+
+
+def render_profile_prompt(profile: document_profiles.DocumentProfile) -> str:
+    """Render the ai_extraction_prompt template with profile data."""
+    if not profile.ai_extraction_prompt:
+        return ""
+    prompt = profile.ai_extraction_prompt
+    prompt = prompt.replace("{supplier}", profile.supplier)
+    prompt = prompt.replace("{document_type}", profile.document_type)
+
+    field_instructions = "\n".join(
+        f"- {f.name}: {'Required' if f.required else 'Optional'} {f.type}"
+        + (f" (pattern: {f.pattern})" if f.pattern else "")
+        for f in profile.fields
+    )
+    prompt = prompt.replace("{field_instructions}", field_instructions)
+
+    table_columns = " | ".join(
+        f"{c.field}: {c.type}" for c in (profile.line_item_table.columns if profile.line_item_table else [])
+    )
+    prompt = prompt.replace("{table_columns}", table_columns)
+
+    schema_block = "{\n"
+    for f in profile.fields:
+        schema_block += f"  \"{f.name}\": string | null,\n"
+    schema_block += "  \"line_items\": [\n"
+    for c in (profile.line_item_table.columns if profile.line_item_table else []):
+        schema_block += f"    \"{c.field}\": {c.type},\n"
+    schema_block += "  ]\n}"
+    prompt = prompt.replace("{schema_block}", schema_block)
+
+    return prompt
+
+
+def apply_profile_normalizers(
+    data: dict[str, Any],
+    profile: document_profiles.DocumentProfile,
+) -> dict[str, Any]:
+    """Apply per-field normalizers from the profile to extracted data."""
+    result = dict(data)
+    for field in profile.fields:
+        if field.name not in result:
+            continue
+        if not field.normalizers:
+            continue
+        result[field.name] = document_profiles.apply_normalizers(
+            result[field.name], field.normalizers
+        )
+
+    # Also normalize line items
+    line_items = result.get("line_items", [])
+    if line_items and profile.line_item_table:
+        normalized_items = []
+        for item in line_items:
+            normalized = dict(item)
+            for col in profile.line_item_table.columns:
+                if col.field not in item:
+                    continue
+                # Find the matching field definition for normalizers
+                for field in profile.fields:
+                    if field.name == col.field and field.normalizers:
+                        normalized[col.field] = document_profiles.apply_normalizers(
+                            item[col.field], field.normalizers
+                        )
+                        break
+            normalized_items.append(normalized)
+        result["line_items"] = normalized_items
+
+    return result
+
+
+def run_validation_rules(
+    data: dict[str, Any],
+    profile: document_profiles.DocumentProfile,
+) -> list[str]:
+    """Run validation rules from the profile and return warning messages."""
+    warnings: list[str] = []
+    line_items = data.get("line_items", [])
+    if not isinstance(line_items, list):
+        line_items = []
+
+    for rule in profile.validation_rules:
+        if rule.rule == "row_arithmetic":
+            for idx, item in enumerate(line_items, start=1):
+                qty = _safe_float(item.get("quantity"))
+                price = _safe_float(item.get("unit_price"))
+                total = _safe_float(item.get("line_total"))
+                if qty is not None and price is not None and total is not None:
+                    calc = qty * price
+                    if abs(calc - total) > rule.tolerance:
+                        warnings.append(
+                            f"Row {idx} arithmetic check: {qty} x {price} = {calc:.2f}, "
+                            f"extracted = {total:.2f} (diff {abs(calc - total):.2f})"
+                        )
+
+        elif rule.rule == "line_totals_sum_to":
+            target = _safe_float(data.get(rule.target or ""))
+            total = sum(_safe_float(item.get("line_total")) or 0 for item in line_items)
+            if target is not None and total > 0:
+                if abs(total - target) > rule.tolerance:
+                    warnings.append(
+                        f"Line items sum to {total:.2f}, but {rule.target} = {target:.2f} "
+                        f"(diff {abs(total - target):.2f})"
+                    )
+
+        elif rule.rule == "field_sum":
+            op_sum = sum(_safe_float(data.get(op)) or 0 for op in rule.operands)
+            target = _safe_float(data.get(rule.target or ""))
+            if target is not None and op_sum > 0:
+                if abs(op_sum - target) > rule.tolerance:
+                    warnings.append(
+                        f"{' + '.join(rule.operands)} = {op_sum:.2f}, "
+                        f"but {rule.target} = {target:.2f} (diff {abs(op_sum - target):.2f})"
+                    )
+
+    return warnings
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def legacy_tuju_pipeline_enabled() -> bool:
+    return os.getenv("LEGACY_TUJU_PIPELINE", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class WorkbookBusyError(PermissionError):
@@ -232,6 +397,7 @@ AUTH_HELP = (
 
 AI_FALLBACK_DISABLED_NOTE = "Automatic AI fallback is disabled. Review the local OCR result before saving."
 AI_FALLBACK_AUTH_NOTE = "AI fallback could not run because OpenAI authentication is not configured correctly. Review carefully before saving."
+AI_FALLBACK_CREDITS_NOTE = "AI fallback could not run because the AI provider account is out of credits. Review carefully before saving."
 UNKNOWN_DOCUMENT_FORMAT_MESSAGE = (
     "New document format detected. I do not have a local OCR profile for this document yet. "
     "An admin can register this format with the /register_document command."
@@ -1021,6 +1187,11 @@ def openai_model_name() -> str:
 
 def is_openai_auth_error(exc: Exception) -> bool:
     return isinstance(exc, AuthenticationError) or str(exc) == AUTH_HELP
+
+
+def is_openai_credit_error(exc: Exception) -> bool:
+    """True for a 402 Payment Required response (insufficient AI provider credits)."""
+    return isinstance(exc, APIStatusError) and exc.status_code == 402
 
 
 def configured_invoice_workbook_dir() -> Path:
@@ -2184,8 +2355,15 @@ def extract_invoice_with_local_ocr(image_path: Path) -> LocalOCRResult:
             classifier_path = create_tuju_classifier_crop(image_path)
             classifier_text, classifier_confidence = cached_ocr_text_and_confidence(ocr_cache, classifier_path, "tuju_classifier")
 
-    # ── TUJU-specific extraction paths ────────────────────────────────
-    if matched_profile_id == "tuju_galaxy_delivery_order":
+    # ── Profile-based extraction ──────────────────────────────────────
+    matched_profile: document_profiles.DocumentProfile | None = None
+    if matched_profile_id:
+        matched_profile = profile_by_id(matched_profile_id)
+
+    # Legacy TUJU path (always used for TUJU profiles for backward compatibility)
+    use_legacy_tuju = legacy_tuju_pipeline_enabled() or matched_profile_id in ("tuju_galaxy_delivery_order", "tuju_galaxy_invoice")
+
+    if use_legacy_tuju and matched_profile_id == "tuju_galaxy_delivery_order":
         tuju_crops = create_tuju_focused_crops(image_path)
         contact_text, contact_confidence = cached_ocr_text_and_confidence(ocr_cache, tuju_crops["contact"], "tuju_do_contact")
         table_text, table_confidence = cached_ocr_text_and_confidence(ocr_cache, tuju_crops["table"], "tuju_do_table")
@@ -2196,7 +2374,7 @@ def extract_invoice_with_local_ocr(image_path: Path) -> LocalOCRResult:
         tuju_used = True
         focused_profile = "tuju_delivery_order_focused"
 
-    elif matched_profile_id == "tuju_galaxy_invoice":
+    elif use_legacy_tuju and matched_profile_id == "tuju_galaxy_invoice":
         invoice_crops = create_tuju_invoice_focused_crops(image_path)
         contact_text, contact_confidence = cached_ocr_text_and_confidence(ocr_cache, invoice_crops["contact"], "tuju_invoice_contact")
         table_text, table_confidence = cached_ocr_text_and_confidence(ocr_cache, invoice_crops["table"], "tuju_invoice_table")
@@ -2205,6 +2383,31 @@ def extract_invoice_with_local_ocr(image_path: Path) -> LocalOCRResult:
         average_confidence = (classifier_confidence + contact_confidence + table_confidence + total_confidence) / 4
         tuju_used = True
         focused_profile = "tuju_invoice_focused"
+
+    elif matched_profile:
+        # Profile-driven extraction
+        profile_crops = create_profile_crops(image_path, matched_profile)
+        if profile_crops:
+            crop_texts = []
+            crop_confidences = []
+            for field_name, crop_path in profile_crops.items():
+                ct, cc = cached_ocr_text_and_confidence(ocr_cache, crop_path, f"profile_{matched_profile.id}_{field_name}")
+                crop_texts.append(ct)
+                crop_confidences.append(cc)
+            full_page_path = create_ocr_ready_image(image_path)
+            full_text, full_confidence = cached_ocr_text_and_confidence(ocr_cache, full_page_path, "profile_full_page")
+            text = "\n".join([classifier_text] + crop_texts + [full_text])
+            all_confidences = [classifier_confidence] + crop_confidences + [full_confidence]
+            average_confidence = sum(all_confidences) / len(all_confidences)
+        else:
+            # No crop hints — use full-page OCR only
+            full_page_path = create_ocr_ready_image(image_path)
+            full_text, full_confidence = cached_ocr_text_and_confidence(ocr_cache, full_page_path, "profile_full_page")
+            text = f"{classifier_text}\n{full_text}"
+            average_confidence = (classifier_confidence + full_confidence) / 2
+
+        tuju_used = False
+        focused_profile = ""
 
     if not tuju_used:
         ocr_image_path = create_ocr_ready_image(image_path)
@@ -2219,6 +2422,26 @@ def extract_invoice_with_local_ocr(image_path: Path) -> LocalOCRResult:
     contact_person = parse_ocr_contact_person(text)
     line_items = merge_ocr_line_item_candidates(parse_ocr_line_items(table_text), parse_ocr_line_items(text))
     document_total = parse_ocr_document_total(text)
+
+    # ── Apply profile normalizers ─────────────────────────────────────
+    validation_warnings: list[str] = []
+    if matched_profile:
+        raw_data: dict[str, Any] = {
+            "tax_invoice": tax_invoice,
+            "invoice_date": invoice_date,
+            "contact_person": contact_person,
+            "document_total": document_total,
+            "line_items": line_items,
+        }
+        normalized = apply_profile_normalizers(raw_data, matched_profile)
+        tax_invoice = normalized.get("tax_invoice", tax_invoice)
+        invoice_date = normalized.get("invoice_date", invoice_date)
+        contact_person = normalized.get("contact_person", contact_person)
+        document_total = normalized.get("document_total", document_total)
+        line_items = normalized.get("line_items", line_items)
+
+        # ── Run validation rules ──────────────────────────────────────
+        validation_warnings = run_validation_rules(raw_data, matched_profile)
 
     min_confidence = env_float("LOCAL_OCR_MIN_CONFIDENCE", DEFAULT_LOCAL_OCR_MIN_CONFIDENCE)
     review_confidence = env_float("LOCAL_OCR_REVIEW_CONFIDENCE", DEFAULT_LOCAL_OCR_REVIEW_CONFIDENCE)
@@ -2260,8 +2483,12 @@ def extract_invoice_with_local_ocr(image_path: Path) -> LocalOCRResult:
         data["document_profile"] = focused_profile.removesuffix("_focused")
     if matched_profile_id:
         data["profile_id"] = matched_profile_id
+        data["profile_supplier"] = matched_profile.supplier if matched_profile else ""
+        data["profile_document_type"] = matched_profile.document_type if matched_profile else ""
     if document_total is not None:
         data["document_total"] = document_total
+    if validation_warnings:
+        data["validation_warnings"] = validation_warnings
     repair_line_item_arithmetic(data)
     logging.info(
         "Local OCR extraction complete image=%s profile=%s elapsed=%.2fs ocr_calls=%s",
@@ -2341,6 +2568,9 @@ async def extract_invoice_hybrid(image_path: Path, model: str) -> tuple[dict[str
                 if is_openai_auth_error(exc):
                     note = f"{local_result.reason} {AI_FALLBACK_AUTH_NOTE}"
                     logging.info(note)
+                elif is_openai_credit_error(exc):
+                    note = f"{local_result.reason} {AI_FALLBACK_CREDITS_NOTE}"
+                    logging.info(note)
                 else:
                     raise
         if note is None:
@@ -2362,6 +2592,8 @@ async def extract_invoice_hybrid(image_path: Path, model: str) -> tuple[dict[str
             except Exception as exc:
                 if is_openai_auth_error(exc):
                     note = f"{local_result.reason} {AI_FALLBACK_AUTH_NOTE}"
+                elif is_openai_credit_error(exc):
+                    note = f"{local_result.reason} {AI_FALLBACK_CREDITS_NOTE}"
                 else:
                     raise
         if note is None:
@@ -2568,6 +2800,10 @@ def extraction_review_warnings(data: dict[str, Any]) -> list[str]:
     document_type = normalize_document_type(data)
     for warning in data.get("pair_compare_warnings") or []:
         warnings.append(f"Pair check: {warning}")
+
+    # Add profile validation warnings
+    for warning in data.get("validation_warnings") or []:
+        warnings.append(f"Profile validation: {warning}")
 
     confidence = normalize_number(data.get("confidence"))
     if confidence is not None and confidence < 0.75:
@@ -4305,6 +4541,31 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not await is_authorized(update):
         return
 
+    # Check if in registration mode
+    if registration_flow.is_in_registration_mode(context):
+        received_at = datetime.now(timezone.utc)
+        invoice_id = "reg_" + invoice_id_from_timestamp(received_at)
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        image_path = IMAGE_DIR / f"{invoice_id}.jpg"
+        photo = update.message.photo[-1]
+        telegram_file = await context.bot.get_file(photo.file_id)
+        await telegram_file.download_to_drive(custom_path=image_path)
+        await registration_flow.handle_registration_file(update, context, image_path)
+        return
+
+    # Check if in test mode
+    if profile_management.get_test_state(context):
+        received_at = datetime.now(timezone.utc)
+        invoice_id = "test_" + invoice_id_from_timestamp(received_at)
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        image_path = IMAGE_DIR / f"{invoice_id}.jpg"
+        photo = update.message.photo[-1]
+        telegram_file = await context.bot.get_file(photo.file_id)
+        await telegram_file.download_to_drive(custom_path=image_path)
+        handled = await profile_management.handle_test_file(update, context, image_path)
+        if handled:
+            return
+
     received_at = datetime.now(timezone.utc)
     invoice_id = invoice_id_from_timestamp(received_at)
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -4343,12 +4604,52 @@ async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     mime_type = update.message.document.mime_type or ""
+    file_name = update.message.document.file_name or "document"
+    file_ext = Path(file_name).suffix.lower()
+
+    # Support XLSX files for registration
+    if registration_flow.is_in_registration_mode(context) and file_ext in (".xlsx", ".xls"):
+        received_at = datetime.now(timezone.utc)
+        invoice_id = "reg_" + invoice_id_from_timestamp(received_at)
+        suffix = file_ext or ".xlsx"
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        file_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+        telegram_file = await context.bot.get_file(update.message.document.file_id)
+        await telegram_file.download_to_drive(custom_path=file_path)
+        await registration_flow.handle_registration_file(update, context, file_path)
+        return
+
     if not mime_type.startswith("image/"):
         await update.message.reply_text("Please send an image file or photo of the D.O or invoice.")
         return
 
+    if registration_flow.is_in_registration_mode(context):
+        received_at = datetime.now(timezone.utc)
+        invoice_id = "reg_" + invoice_id_from_timestamp(received_at)
+        suffix = file_ext or ".jpg"
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+        telegram_file = await context.bot.get_file(update.message.document.file_id)
+        await telegram_file.download_to_drive(custom_path=image_path)
+        await registration_flow.handle_registration_file(update, context, image_path)
+        return
+
+    # Check if in test mode
+    if profile_management.get_test_state(context):
+        received_at = datetime.now(timezone.utc)
+        invoice_id = "test_" + invoice_id_from_timestamp(received_at)
+        suffix = file_ext or ".jpg"
+        IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+        telegram_file = await context.bot.get_file(update.message.document.file_id)
+        await telegram_file.download_to_drive(custom_path=image_path)
+        handled = await profile_management.handle_test_file(update, context, image_path)
+        if handled:
+            return
+
     received_at = datetime.now(timezone.utc)
     invoice_id = invoice_id_from_timestamp(received_at)
+    suffix = file_ext or ".jpg"
     suffix = Path(update.message.document.file_name or "document.jpg").suffix or ".jpg"
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
@@ -4377,9 +4678,48 @@ async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TY
     await process_invoice_image(update, context, image_path, invoice_id, received_at, source_image_hash)
 
 
+async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle non-image document files (DOCX, PDF, etc.) — primarily for registration mode."""
+    if not update.message or not update.message.document:
+        return
+    if not await is_authorized(update):
+        return
+
+    mime_type = update.message.document.mime_type or ""
+    file_name = update.message.document.file_name or "document"
+    file_ext = Path(file_name).suffix.lower()
+
+    # Only handle during registration mode
+    if not registration_flow.is_in_registration_mode(context):
+        await update.message.reply_text(
+            "I can only process image files (photos or scanned images) for invoices. "
+            "Please send a photo of the document."
+        )
+        return
+
+    # In registration mode, accept any file type
+    received_at = datetime.now(timezone.utc)
+    invoice_id = "reg_" + invoice_id_from_timestamp(received_at)
+    suffix = file_ext or ".bin"
+    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+
+    telegram_file = await context.bot.get_file(update.message.document.file_id)
+    await telegram_file.download_to_drive(custom_path=file_path)
+
+    await registration_flow.handle_registration_file(update, context, file_path)
+
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await is_authorized(update):
         return
+
+    # Check registration mode text commands first
+    if registration_flow.is_in_registration_mode(context):
+        handled = await registration_flow.handle_registration_text(update, context)
+        if handled:
+            return
+
     if update.message:
         edit_state = context.chat_data.get(EDIT_PO_RUNNING_NUMBER_KEY)
         if isinstance(edit_state, dict):
@@ -4427,10 +4767,129 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
             logging.exception("Failed to notify chat about an error")
 
 
+async def reload_profiles_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /reload_profiles — reload document profiles from disk."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    try:
+        count = len(reload_profiles())
+        await update.message.reply_text(f"Reloaded {count} document profiles.")
+    except Exception as exc:
+        await update.message.reply_text(f"Failed to reload profiles: {exc}")
+
+
+async def register_document_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /register_document — start the registration flow."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await registration_flow.register_document_command(update, context)
+
+
+async def register_blank_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /blank — mark next file as blank template."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await registration_flow.register_blank_command(update, context)
+
+
+async def register_supplier_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /supplier — set supplier name."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await registration_flow.register_supplier_command(update, context)
+
+
+async def list_profiles_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /list_profiles — list all registered profiles."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.list_profiles_command(update, context)
+
+
+async def profile_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /profile_info <id> — show detailed profile info."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.profile_info_command(update, context)
+
+
+async def disable_profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /disable_profile <id> — soft-disable a profile."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.disable_profile_command(update, context)
+
+
+async def enable_profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /enable_profile <id> — re-enable a disabled profile."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.enable_profile_command(update, context)
+
+
+async def remove_profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /remove_profile <id> — move profile to removed/ directory."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.remove_profile_command(update, context)
+
+
+async def test_profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /test_profile <id> — start a test flow for a profile."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.test_profile_command(update, context)
+
+
+async def export_profiles_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /export_profiles — export all profiles as ZIP."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.export_profiles_command(update, context)
+
+
+async def import_profiles_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /import_profiles — import profiles from a ZIP."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+    await profile_management.import_profiles_command(update, context)
+
+
 BOT_COMMANDS = [
     BotCommand("start", "Start the bot and see instructions"),
     BotCommand("whoami", "Show your Telegram chat ID"),
     BotCommand("status", "Show bot configuration and status"),
+    BotCommand("register_document", "Register a new document type profile"),
+    BotCommand("reload_profiles", "Reload document profiles from disk"),
+    BotCommand("list_profiles", "List all registered document profiles"),
+    BotCommand("profile_info", "Show detailed info about a profile"),
+    BotCommand("test_profile", "Test extraction with a profile"),
+    BotCommand("export_profiles", "Export all profiles as ZIP"),
+    BotCommand("import_profiles", "Import profiles from a ZIP"),
     BotCommand("save", "Save the reviewed D.O + invoice pair to Excel"),
     BotCommand("savewithdifferentname", "Save with a custom filename"),
     BotCommand("editnothensave", "Save with a specific running number"),
@@ -4460,6 +4919,18 @@ def build_application(token: str) -> Application:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("whoami", whoami))
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("register_document", register_document_command))
+    application.add_handler(CommandHandler("reload_profiles", reload_profiles_command))
+    application.add_handler(CommandHandler("blank", register_blank_command))
+    application.add_handler(CommandHandler("supplier", register_supplier_command))
+    application.add_handler(CommandHandler("list_profiles", list_profiles_command))
+    application.add_handler(CommandHandler("profile_info", profile_info_command))
+    application.add_handler(CommandHandler("disable_profile", disable_profile_command))
+    application.add_handler(CommandHandler("enable_profile", enable_profile_command))
+    application.add_handler(CommandHandler("remove_profile", remove_profile_command))
+    application.add_handler(CommandHandler("test_profile", test_profile_command))
+    application.add_handler(CommandHandler("export_profiles", export_profiles_command))
+    application.add_handler(CommandHandler("import_profiles", import_profiles_command))
     application.add_handler(CommandHandler("procure", procurement_query_command))
     application.add_handler(CommandHandler("cleanup", cleanup_command))
     application.add_handler(CommandHandler("last", last_invoice_command))
@@ -4476,7 +4947,9 @@ def build_application(token: str) -> Application:
     application.add_handler(CommandHandler("cancel", cancel_pending))
     application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document_image))
+    application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Document.IMAGE, handle_other_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    application.add_handler(CallbackQueryHandler(registration_flow.registration_callback, pattern="^reg_"))
     application.add_error_handler(on_error)
     return application
 
