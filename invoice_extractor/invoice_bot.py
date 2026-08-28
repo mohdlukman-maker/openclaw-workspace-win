@@ -3746,6 +3746,14 @@ try {
     return True, None
 
 
+def pdf_exporter_available() -> tuple[bool, str | None]:
+    if find_libreoffice_cmd():
+        return True, None
+    if os.name == "nt" and shutil.which("powershell"):
+        return excel_com_available()
+    return False, "No PDF exporter found. Install LibreOffice on Linux or Excel on Windows."
+
+
 def startup_self_check(test_excel: bool = False) -> list[str]:
     issues: list[str] = []
 
@@ -3799,9 +3807,9 @@ def startup_self_check(test_excel: bool = False) -> list[str]:
             issues.append(f"Local OCR is enabled but unavailable: {exc}")
 
     if env_bool("EXPORT_PDF", DEFAULT_EXPORT_PDF) and test_excel:
-        ok, error = excel_com_available()
+        ok, error = pdf_exporter_available()
         if not ok:
-            issues.append(f"PDF export is enabled but Excel automation is unavailable: {error}")
+            issues.append(f"PDF export is enabled but PDF automation is unavailable: {error}")
 
     return issues
 
