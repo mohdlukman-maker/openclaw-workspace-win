@@ -1,0 +1,18 @@
+﻿[Unit]
+Description=Telegram Invoice Extractor Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/invoice_extractor
+ExecStart=/home/ubuntu/invoice_extractor/.venv/bin/python invoice_bot.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

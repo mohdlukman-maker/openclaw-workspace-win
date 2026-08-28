@@ -226,7 +226,8 @@ class PairMergeTests(unittest.TestCase):
         self.assertEqual(merged["contact_person"], "Farah 011-54302725")
         self.assertEqual(merged["delivery_order_contact_person"], "Farah 011-54302725")
         self.assertEqual(merged["invoice_document_date"], "2026-06-30")
-        self.assertEqual(merged["invoice_date"], "2026-06-29")
+        self.assertEqual(merged["invoice_date"], "2026-06-30")
+        self.assertEqual(merged["delivery_order_date"], "2026-06-29")
         self.assertEqual(merged["supplier_name"], "TUJU GALAXY")
         self.assertEqual(merged["line_items"][0]["unit_price"], 5)
         self.assertEqual(merged["line_items"][0]["line_total"], 10)
@@ -254,6 +255,68 @@ class PairMergeTests(unittest.TestCase):
         self.assertTrue(any("extra item row" in warning for warning in warnings))
         self.assertEqual(merged["item_source"], DOCUMENT_TYPE_INVOICE)
         self.assertEqual(len(merged["line_items"]), 2)
+
+
+class DateAndStemTests(unittest.TestCase):
+    def test_po_month_name_and_key_from_iso_string(self) -> None:
+        from invoice_bot import po_month_key, po_month_name
+
+        self.assertEqual(po_month_name("2026-06-20"), "JUNE")
+        self.assertEqual(po_month_key("2026-06-20"), "2026-06")
+
+    def test_ensure_po_output_stem_uses_invoice_date(self) -> None:
+        from invoice_bot import ensure_po_output_stem
+
+        data = {
+            "invoice_date": "2026-06-20",
+            "tax_invoice": "TG-K08849",
+        }
+        # Even if received_at is in August, the stem should use June from invoice_date
+        received_august = datetime(2026, 8, 28, 12, 0, 0, tzinfo=timezone.utc)
+        stem = ensure_po_output_stem(data, received_at=received_august)
+
+        self.assertIn("JUNE", stem)
+        self.assertEqual(data.get("po_month_name"), "JUNE")
+        self.assertEqual(data.get("po_month_key"), "2026-06")
+
+    def test_save_material_requisition_workbook_openpyxl(self) -> None:
+        from openpyxl import Workbook, load_workbook
+        from invoice_bot import MR_SHEET_NAME, save_material_requisition_workbook
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            template_path = root / "mr_template.xlsx"
+            target_path = root / "test_mr.xlsx"
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = MR_SHEET_NAME
+            wb.save(template_path)
+            wb.close()
+
+            data = {
+                "invoice_date": "2026-06-20",
+                "delivery_order_contact_person": "Farah 011-54302725",
+                "line_items": [
+                    {"item_no": "1", "description": "Steel Band", "quantity": "4 roll", "unit_price": 13.8, "line_total": 55.2},
+                ],
+            }
+
+            count = save_material_requisition_workbook(target_path, template_path, data, "BFE PO TUJU JUNE 0001")
+
+            self.assertEqual(count, 1)
+            self.assertTrue(target_path.exists())
+
+            saved_wb = load_workbook(target_path)
+            saved_ws = saved_wb[MR_SHEET_NAME]
+            self.assertEqual(saved_ws["N10"].value, "BFE PO TUJU JUNE 0001")
+            self.assertEqual(saved_ws["D15"].value, "Farah 011-54302725")
+            self.assertEqual(saved_ws["B19"].value, "1")
+            self.assertEqual(saved_ws["C19"].value, "Steel Band")
+            self.assertEqual(saved_ws["K19"].value, "4 roll")
+            self.assertEqual(saved_ws["L19"].value, 13.8)
+            self.assertEqual(saved_ws["N19"].value, 55.2)
+            saved_wb.close()
 
 
 class LocalOCRParsingTests(unittest.TestCase):

@@ -796,6 +796,47 @@ def load_profile(path: Path) -> DocumentProfile | None:
         return None
 
 
+def get_default_builtin_profiles() -> list[DocumentProfile]:
+    return [
+        DocumentProfile(
+            id="tuju_galaxy_invoice",
+            name="TUJU GALAXY - Tax Invoice",
+            supplier="TUJU GALAXY",
+            document_type="invoice",
+            classifier=ClassifierConfig(
+                markers=(
+                    ClassifierMarker(pattern="TUJU GALAXY", type="literal", weight=5, role="supplier"),
+                    ClassifierMarker(pattern="TUJU GALAKSI", type="literal", weight=5, role="supplier"),
+                    ClassifierMarker(pattern="Blackfox", type="literal", weight=3, role="supplier"),
+                    ClassifierMarker(pattern=r"TG-[A-Z0-9]{4,}", type="regex", weight=3, role="docnumber"),
+                    ClassifierMarker(pattern=r"tax\s*invoice", type="regex", weight=5, role="doctype"),
+                    ClassifierMarker(pattern=r"delivery\s*order", type="regex", weight=-5, role="doctype_exclusion"),
+                ),
+                match_threshold=6,
+                ambiguity_margin=3,
+            ),
+        ),
+        DocumentProfile(
+            id="tuju_galaxy_delivery_order",
+            name="TUJU GALAXY - Delivery Order",
+            supplier="TUJU GALAXY",
+            document_type="delivery_order",
+            classifier=ClassifierConfig(
+                markers=(
+                    ClassifierMarker(pattern="TUJU GALAXY", type="literal", weight=5, role="supplier"),
+                    ClassifierMarker(pattern="TUJU GALAKSI", type="literal", weight=5, role="supplier"),
+                    ClassifierMarker(pattern="Blackfox", type="literal", weight=3, role="supplier"),
+                    ClassifierMarker(pattern=r"TG-[A-Z0-9]{4,}", type="regex", weight=3, role="docnumber"),
+                    ClassifierMarker(pattern=r"delivery\s*order", type="regex", weight=5, role="doctype"),
+                    ClassifierMarker(pattern=r"tax\s*invoice", type="regex", weight=-5, role="doctype_exclusion"),
+                ),
+                match_threshold=6,
+                ambiguity_margin=3,
+            ),
+        ),
+    ]
+
+
 def load_profiles(profiles_dir: Path | None = None) -> list[DocumentProfile]:
     """Load all active profiles from the profiles directory.
 

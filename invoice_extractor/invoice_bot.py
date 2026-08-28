@@ -8,10 +8,11 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date as datetime_date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -288,9 +289,10 @@ def reload_profiles() -> list[document_profiles.DocumentProfile]:
 
 def get_profiles() -> list[document_profiles.DocumentProfile]:
     """Get the cached profile list, loading on first call."""
+    global _loaded_profiles
     if _loaded_profiles is None:
-        reload_profiles()
-    return _loaded_profiles or []
+        _loaded_profiles = reload_profiles()
+    return _loaded_profiles if _loaded_profiles else document_profiles.get_default_builtin_profiles()
 
 
 INVOICE_HEADERS = [
@@ -662,10 +664,11 @@ def drop_blank_line_items(data: dict[str, Any]) -> None:
 
 
 def format_quantity_with_unit(item: dict[str, Any]) -> Any:
-    quantity = normalize_number(item.get("quantity"))
-    unit = normalize_quantity_unit(item.get("quantity_unit"))
+    unit = normalize_quantity_unit(item.get("quantity_unit") or item.get("unit"))
+    raw_quantity = item.get("quantity")
+    quantity = normalize_number(raw_quantity)
     if quantity is None:
-        return unit or None
+        return raw_quantity or unit or None
     if almost_whole_number(quantity):
         quantity_text = str(int(round(quantity)))
     else:
@@ -995,16 +998,19 @@ def compare_and_merge_documents(
     elif not invoice_number:
         warnings.append("Invoice number is missing.")
 
-    do_date = delivery_order.get("invoice_date")
-    invoice_date = invoice.get("invoice_date")
+    do_date = delivery_order.get("invoice_date") or delivery_order.get("delivery_order_date") or delivery_order.get("do_date")
+    invoice_date = invoice.get("invoice_date") or invoice.get("invoice_document_date")
     if invoice_date:
         merged["invoice_document_date"] = invoice_date
+        merged["invoice_date"] = invoice_date
     if do_date:
         merged["delivery_order_date"] = do_date
-        merged["invoice_date"] = do_date
-    elif invoice_date:
-        merged["invoice_date"] = invoice_date
-        warnings.append("D.O date is missing, so invoice date was used as fallback.")
+        merged["delivery_order_document_date"] = do_date
+        if not invoice_date:
+            merged["invoice_date"] = do_date
+            warnings.append("Invoice date is missing, so D.O date was used as fallback.")
+    elif not invoice_date:
+        warnings.append("Both invoice date and D.O date are missing.")
 
     merged["tax_invoice"] = do_number or invoice_number
     merged["invoice_number"] = invoice_number or do_number
@@ -1311,15 +1317,38 @@ def safe_workbook_stem(value: Any, fallback: str) -> str:
     return stem[:100] or fallback
 
 
-def po_month_name(received_at: datetime | None = None) -> str:
-    when = received_at or datetime.now(timezone.utc)
+def parse_date_or_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime_date):
+        return datetime.combine(value, datetime.min.time())
+    text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        pass
+    return None
+
+
+def po_month_name(source: Any = None) -> str:
+    when = parse_date_or_datetime(source)
+    if when is None:
+        when = datetime.now(timezone.utc)
     if when.tzinfo is not None:
         when = when.astimezone()
     return when.strftime("%B").upper()
 
 
-def po_month_key(received_at: datetime | None = None) -> str:
-    when = received_at or datetime.now(timezone.utc)
+def po_month_key(source: Any = None) -> str:
+    when = parse_date_or_datetime(source)
+    if when is None:
+        when = datetime.now(timezone.utc)
     if when.tzinfo is not None:
         when = when.astimezone()
     return when.strftime("%Y-%m")
@@ -1382,7 +1411,7 @@ def parse_po_running_number(value: Any) -> int | None:
 
 def po_output_stem_for_running_number(
     running_number: int,
-    received_at: datetime | None = None,
+    received_at: Any = None,
     record_type: str = "record",
 ) -> tuple[str, str, str]:
     month_name = po_month_name(received_at)
@@ -1398,7 +1427,14 @@ def apply_manual_po_running_number(
     received_at: datetime | None = None,
     record_type: str = "record",
 ) -> str:
-    stem, month_name, month_key = po_output_stem_for_running_number(running_number, received_at, record_type)
+    doc_date = (
+        data.get("invoice_date")
+        or data.get("invoice_document_date")
+        or data.get("delivery_order_date")
+        or data.get("do_date")
+        or received_at
+    )
+    stem, month_name, month_key = po_output_stem_for_running_number(running_number, doc_date, record_type)
     data["po_month_key"] = month_key
     data["po_month_name"] = month_name
     data["po_running_number"] = f"{running_number:04d}"
@@ -1409,7 +1445,7 @@ def apply_manual_po_running_number(
 
 def manual_po_running_number_is_available(
     running_number: int,
-    received_at: datetime | None = None,
+    received_at: Any = None,
     record_type: str = "record",
 ) -> bool:
     _, month_name, month_key = po_output_stem_for_running_number(running_number, received_at, record_type)
@@ -1421,8 +1457,15 @@ def ensure_po_output_stem(data: dict[str, Any], received_at: datetime | None = N
     if existing:
         return safe_workbook_stem(existing, str(existing))
 
-    month_name = po_month_name(received_at)
-    month_key = po_month_key(received_at)
+    doc_date = (
+        data.get("invoice_date")
+        or data.get("invoice_document_date")
+        or data.get("delivery_order_date")
+        or data.get("do_date")
+        or received_at
+    )
+    month_name = po_month_name(doc_date)
+    month_key = po_month_key(doc_date)
     record_type = (data.get("record_type") or invoice_record_type(data.get("submitter_chat_id"))).strip().lower()
     prefix = TEST_PO_FILENAME_PREFIX if record_type == "test" else PO_FILENAME_PREFIX
     running_number = next_po_running_number(month_name, month_key, record_type)
@@ -3205,8 +3248,8 @@ def clear_template_items(worksheet: Any) -> None:
 
 def clear_material_requisition_items(worksheet: Any) -> None:
     for row in range(MR_FIRST_ITEM_ROW, MR_LAST_ITEM_ROW + 1):
-        for column in ("B", "C", "H", "K", "L", "N"):
-            worksheet[f"{column}{row}"] = None
+        for col in ("B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"):
+            worksheet[f"{col}{row}"] = None
 
 
 def save_template_workbook(
@@ -3275,95 +3318,39 @@ def save_material_requisition_workbook(
         )
 
     assert_workbook_writable(target_path)
+    workbook = load_workbook(template_path)
+    if MR_SHEET_NAME not in workbook.sheetnames:
+        raise RuntimeError(f"Material Requisition template sheet {MR_SHEET_NAME!r} was not found.")
+
+    worksheet = workbook[MR_SHEET_NAME]
+    clear_material_requisition_items(worksheet)
+
     po_date = data.get("po_document_date") or purchase_order_date_from_invoice(data.get("invoice_date"))
     date_request = date_request_from_purchase_order_date(po_date)
     data["material_requisition_date_request"] = date_request
     data["material_requisition_reference"] = po_reference
+    requested_by = delivery_order_requested_by(data)
+
+    worksheet["N10"] = str(po_reference)
+    worksheet["N12"] = str(template_display_date(date_request))
+    worksheet["D15"] = requested_by
+    worksheet["D52"] = requested_by
+
+    for offset, item in enumerate(line_items):
+        row = MR_FIRST_ITEM_ROW + offset
+        worksheet[f"B{row}"] = item.get("item_no") or offset + 1
+        worksheet[f"C{row}"] = item.get("description") or ""
+        worksheet[f"K{row}"] = format_quantity_with_unit(item) or ""
+        unit_price = normalize_number(item.get("unit_price"))
+        if unit_price is not None:
+            worksheet[f"L{row}"] = unit_price
+        line_total = normalize_number(item.get("line_total"))
+        if line_total is not None:
+            worksheet[f"N{row}"] = line_total
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    payload_path = DATA_DIR / f"{target_path.stem}_mr_payload.json"
-    payload = {
-        "reference": po_reference,
-        "date_request": template_display_date(date_request),
-        "requested_by": delivery_order_requested_by(data),
-        "items": [
-            {
-                "item_no": item.get("item_no") or offset + 1,
-                "description": item.get("description") or "",
-                "quantity": format_quantity_with_unit(item) or "",
-                "unit_price": normalize_number(item.get("unit_price")),
-                "amount": normalize_number(item.get("line_total")),
-            }
-            for offset, item in enumerate(line_items)
-        ],
-    }
-    payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-
-    command = f"""
-$ErrorActionPreference = 'Stop'
-$excel = $null
-$workbook = $null
-try {{
-    $payload = Get-Content -LiteralPath '{powershell_single_quote(payload_path)}' -Raw | ConvertFrom-Json
-    $target = '{powershell_single_quote(target_path.resolve())}'
-    if (Test-Path -LiteralPath $target) {{ Remove-Item -LiteralPath $target -Force }}
-    $excel = New-Object -ComObject Excel.Application
-    $excel.Visible = $false
-    $excel.DisplayAlerts = $false
-    $workbook = $excel.Workbooks.Open('{powershell_single_quote(template_path.resolve())}', 3, $false)
-    $worksheet = $workbook.Worksheets.Item('{powershell_single_quote_text(MR_SHEET_NAME)}')
-    $worksheet.Range('B19:B40').ClearContents()
-    $worksheet.Range('C19:G40').ClearContents()
-    $worksheet.Range('H19:J40').ClearContents()
-    $worksheet.Range('K19:K40').ClearContents()
-    $worksheet.Range('L19:M40').ClearContents()
-    $worksheet.Range('N19:N40').ClearContents()
-    $worksheet.Range('N10').Value2 = [string]$payload.reference
-    $worksheet.Range('N12').Value2 = [string]$payload.date_request
-    $worksheet.Range('D15').Value2 = [string]$payload.requested_by
-    $worksheet.Range('D52').Value2 = [string]$payload.requested_by
-    $row = {MR_FIRST_ITEM_ROW}
-    foreach ($item in $payload.items) {{
-        $worksheet.Range("B$row").Value2 = [string]$item.item_no
-        $worksheet.Range("C$row").Value2 = [string]$item.description
-        $worksheet.Range("K$row").Value2 = [string]$item.quantity
-        if ($null -ne $item.unit_price) {{ $worksheet.Range("L$row").Value2 = [double]$item.unit_price }}
-        if ($null -ne $item.amount) {{ $worksheet.Range("N$row").Value2 = [double]$item.amount }}
-        $row += 1
-    }}
-    $workbook.SaveAs($target, 51)
-    $workbook.Close($false)
-}} finally {{
-    if ($workbook -ne $null) {{
-        try {{ $workbook.Close($false) }} catch {{ }}
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) | Out-Null
-    }}
-    if ($excel -ne $null) {{
-        $excel.Quit()
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null
-    }}
-    [GC]::Collect()
-    [GC]::WaitForPendingFinalizers()
-}}
-"""
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    finally:
-        try:
-            payload_path.unlink()
-        except FileNotFoundError:
-            pass
-
-    if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise RuntimeError(f"Material Requisition Excel creation failed: {error}")
-    if not target_path.exists():
-        raise RuntimeError("Material Requisition Excel creation failed: output file was not created.")
+    workbook.save(target_path)
+    workbook.close()
     return len(line_items)
 
 
@@ -3375,6 +3362,44 @@ def powershell_single_quote_text(value: Any) -> str:
     return str(value).replace("'", "''")
 
 
+def find_libreoffice_cmd() -> str | None:
+    configured = os.getenv("LIBREOFFICE_CMD")
+    if configured and (shutil.which(configured) or Path(configured).exists()):
+        return configured
+    for candidate in ("libreoffice", "soffice"):
+        found = shutil.which(candidate)
+        if found:
+            return found
+    if os.name == "nt":
+        for default_win in (
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ):
+            if Path(default_win).exists():
+                return default_win
+    return None
+
+
+def export_workbook_to_pdf_libreoffice(workbook_path: Path, output_dir: Path) -> Path:
+    cmd = find_libreoffice_cmd()
+    if not cmd:
+        raise RuntimeError("LibreOffice command not found.")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    pdf_path = output_dir / f"{workbook_path.stem}.pdf"
+    if pdf_path.exists():
+        pdf_path.unlink()
+    res = subprocess.run(
+        [cmd, "--headless", "--convert-to", "pdf", "--outdir", str(output_dir), str(workbook_path)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if res.returncode != 0 or not pdf_path.exists():
+        error = res.stderr.strip() or res.stdout.strip() or "LibreOffice conversion failed"
+        raise RuntimeError(f"LibreOffice PDF export failed: {error}")
+    return pdf_path
+
+
 def export_workbook_to_pdf(workbook_path: Path, sheet_name: str = TEMPLATE_SHEET_NAME) -> Path:
     pdf_path = workbook_path.with_suffix(".pdf")
     workbook_path = workbook_path.resolve()
@@ -3383,7 +3408,18 @@ def export_workbook_to_pdf(workbook_path: Path, sheet_name: str = TEMPLATE_SHEET
         assert_workbook_writable(pdf_path)
         pdf_path.unlink()
 
-    command = f"""
+    # 1. Try LibreOffice first if available (cross-platform, Linux GCP VM standard)
+    if find_libreoffice_cmd():
+        try:
+            return export_workbook_to_pdf_libreoffice(workbook_path, workbook_path.parent)
+        except Exception as exc:
+            if os.name != "nt":
+                raise
+            logging.warning("LibreOffice PDF export failed, falling back to Excel COM: %s", exc)
+
+    # 2. Fallback to Windows PowerShell Excel COM if on Windows
+    if os.name == "nt" and shutil.which("powershell"):
+        command = f"""
 $ErrorActionPreference = 'Stop'
 $excel = $null
 $workbook = $null
@@ -3411,18 +3447,20 @@ try {{
     [GC]::WaitForPendingFinalizers()
 }}
 """
-    result = subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    if result.returncode != 0:
-        error = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise RuntimeError(f"PDF export failed: {error}")
-    if not pdf_path.exists():
-        raise RuntimeError("PDF export failed: output file was not created.")
-    return pdf_path
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            error = result.stderr.strip() or result.stdout.strip() or "unknown error"
+            raise RuntimeError(f"PDF export failed: {error}")
+        if not pdf_path.exists():
+            raise RuntimeError("PDF export failed: output file was not created.")
+        return pdf_path
+
+    raise RuntimeError("No PDF exporter found. Install LibreOffice (on Linux/Windows) or Excel (on Windows).")
 
 
 def export_pdf_if_enabled(workbook_path: Path) -> Path | None:
