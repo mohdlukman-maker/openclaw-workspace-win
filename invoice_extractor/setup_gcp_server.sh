@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -e
 
 echo "=================================================="
@@ -14,23 +14,28 @@ sudo apt-get install -y python3 python3-pip python3-venv tesseract-ocr libreoffi
 
 echo "[2/6] Setting up Python virtual environment..."
 cd "$WORKDIR"
-if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+if [ -d "venv" ]; then
+    VENV_DIR="$WORKDIR/venv"
+elif [ -d ".venv" ]; then
+    VENV_DIR="$WORKDIR/.venv"
+else
+    python3 -m venv "$WORKDIR/.venv"
+    VENV_DIR="$WORKDIR/.venv"
 fi
 
 echo "[3/6] Installing Python packages..."
-./.venv/bin/pip install --upgrade pip
-./.venv/bin/pip install -r requirements.txt
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install -r requirements.txt
 
 echo "[4/6] Checking environment configuration (.env)..."
 if [ ! -f ".env" ]; then
     cp .env.example .env
-    echo ">> Created .env from .env.example. Please edit .env with your TELEGRAM_BOT_TOKEN and OPENAI_API_KEY."
+    echo ">> Created .env from .env.example. Please edit .env with your TELEGRAM_BOT_TOKEN and GEMINI_API_KEY."
 fi
 
 echo "[5/6] Initializing data folders and running tests..."
-./.venv/bin/python invoice_bot.py --init-workbook
-./.venv/bin/python -m unittest discover -s tests -v
+"$VENV_DIR/bin/python" invoice_bot.py --init-workbook
+"$VENV_DIR/bin/python" -m unittest discover -s tests -v
 
 echo "[6/6] Configuring systemd 24/7 service..."
 SERVICE_FILE="/etc/systemd/system/invoice-bot.service"
@@ -44,7 +49,7 @@ After=network.target
 Type=simple
 User=$CURRENT_USER
 WorkingDirectory=$WORKDIR
-ExecStart=$WORKDIR/.venv/bin/python invoice_bot.py
+ExecStart=$VENV_DIR/bin/python invoice_bot.py
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
