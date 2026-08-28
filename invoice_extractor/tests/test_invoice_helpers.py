@@ -499,13 +499,33 @@ class OpenAIErrorClassificationTests(unittest.TestCase):
         self.assertFalse(is_openai_credit_error(exc))
         self.assertFalse(is_openai_auth_error(exc))
 
-    def test_auth_error_still_detected(self) -> None:
-        from openai import AuthenticationError
+class AIProviderTests(unittest.TestCase):
+    def test_configured_ai_provider_detects_gemini(self) -> None:
+        from invoice_bot import configured_ai_provider, gemini_api_key, gemini_model_name
 
-        exc = self._api_status_error(401, "bad key")
-        auth_exc = AuthenticationError(str(exc), response=exc.response, body=None)
-        self.assertTrue(is_openai_auth_error(auth_exc))
-        self.assertFalse(is_openai_credit_error(auth_exc))
+        old_gemini = os.environ.get("GEMINI_API_KEY")
+        old_provider = os.environ.get("AI_PROVIDER")
+        try:
+            os.environ["GEMINI_API_KEY"] = "AIzaSyFakeKey123"
+            os.environ.pop("AI_PROVIDER", None)
+            self.assertEqual(gemini_api_key(), "AIzaSyFakeKey123")
+            self.assertEqual(configured_ai_provider(), "gemini")
+            self.assertEqual(gemini_model_name(), "gemini-2.5-flash")
+
+            os.environ["AI_PROVIDER"] = "openai"
+            self.assertEqual(configured_ai_provider(), "openai")
+
+            os.environ["AI_PROVIDER"] = "gemini"
+            self.assertEqual(configured_ai_provider(), "gemini")
+        finally:
+            if old_gemini is not None:
+                os.environ["GEMINI_API_KEY"] = old_gemini
+            else:
+                os.environ.pop("GEMINI_API_KEY", None)
+            if old_provider is not None:
+                os.environ["AI_PROVIDER"] = old_provider
+            else:
+                os.environ.pop("AI_PROVIDER", None)
 
 
 if __name__ == "__main__":

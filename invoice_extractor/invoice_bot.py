@@ -382,24 +382,26 @@ PLACEHOLDER_CREDENTIALS = {
     "your_openai_api_key_here",
     "your_openai_key_here",
     "put_your_openai_api_key_here",
+    "your_gemini_api_key_here",
+    "your_gemini_key_here",
+    "put_your_gemini_api_key_here",
     "your_api_key_here",
     "sk-...",
 }
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENAI_MODEL = "openai/gpt-5.4-mini"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 AUTH_HELP = (
-    "OpenAI authentication is not configured correctly. Use an OpenAI Platform API key "
-    "from https://platform.openai.com/api-keys, or set OPENAI_BEARER_TOKEN / "
-    "OPENAI_TOKEN_COMMAND for a supported short-lived access token. A normal ChatGPT "
-    "login/subscription is not accepted by the OpenAI API."
+    "AI authentication is not configured correctly. Set GEMINI_API_KEY (from https://aistudio.google.com) "
+    "or OPENAI_API_KEY (from https://platform.openai.com/api-keys)."
 )
 
 AI_FALLBACK_DISABLED_NOTE = "Automatic AI fallback is disabled. Review the local OCR result before saving."
-AI_FALLBACK_AUTH_NOTE = "AI fallback could not run because OpenAI authentication is not configured correctly. Review carefully before saving."
-AI_FALLBACK_CREDITS_NOTE = "AI fallback could not run because the AI provider account is out of credits. Review carefully before saving."
+AI_FALLBACK_AUTH_NOTE = "AI fallback could not run because AI API authentication is not configured correctly. Review carefully before saving."
+AI_FALLBACK_CREDITS_NOTE = "AI fallback could not run because the AI provider account is out of credits/quota. Review carefully before saving."
 UNKNOWN_DOCUMENT_FORMAT_MESSAGE = (
     "New document format detected. I do not have a local OCR profile for this document yet. "
     "An admin can register this format with the /register_document command."
@@ -1133,6 +1135,18 @@ def invoice_id_from_timestamp(received_at: datetime) -> str:
     return received_at.strftime("I%Y%m%d%H%M%S%f")
 
 
+def gemini_api_key() -> str | None:
+    for env_var in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        key = os.getenv(env_var)
+        if key and key.strip() and key.strip() not in PLACEHOLDER_CREDENTIALS:
+            return key.strip()
+    return None
+
+
+def gemini_model_name() -> str:
+    return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+
+
 def openai_bearer_credential() -> str:
     token_command = os.getenv("OPENAI_TOKEN_COMMAND")
     if token_command:
@@ -1191,13 +1205,36 @@ def openai_model_name() -> str:
     return model
 
 
+def configured_ai_provider() -> str:
+    explicit = os.getenv("AI_PROVIDER", "").strip().lower()
+    if explicit in {"gemini", "google"}:
+        return "gemini"
+    if explicit in {"openai", "openrouter"}:
+        return "openai"
+    if gemini_api_key():
+        return "gemini"
+    return "openai"
+
+
+def ai_model_name() -> str:
+    if configured_ai_provider() == "gemini":
+        return gemini_model_name()
+    return openai_model_name()
+
+
 def is_openai_auth_error(exc: Exception) -> bool:
-    return isinstance(exc, AuthenticationError) or str(exc) == AUTH_HELP
+    if isinstance(exc, AuthenticationError) or str(exc) == AUTH_HELP:
+        return True
+    exc_str = str(exc).lower()
+    return "api_key_invalid" in exc_str or "unauthenticated" in exc_str or "permissiondenied" in exc_str or "401" in exc_str or "403" in exc_str
 
 
 def is_openai_credit_error(exc: Exception) -> bool:
-    """True for a 402 Payment Required response (insufficient AI provider credits)."""
-    return isinstance(exc, APIStatusError) and exc.status_code == 402
+    """True for 402 Payment Required or 429 Quota Exceeded."""
+    if isinstance(exc, APIStatusError) and exc.status_code == 402:
+        return True
+    exc_str = str(exc).lower()
+    return "resource_exhausted" in exc_str or "quota" in exc_str or "402" in exc_str or "insufficient_quota" in exc_str
 
 
 def configured_invoice_workbook_dir() -> Path:
@@ -2664,22 +2701,58 @@ async def is_authorized(update: Update) -> bool:
     return False
 
 
-async def extract_invoice(image_path: Path, model: str, primary: bool = False) -> dict[str, Any]:
+async def extract_invoice_gemini(
+    image_paths: list[Path],
+    prompt_text: str,
+    model: str,
+    system_instruction: str = SYSTEM_PROMPT,
+) -> dict[str, Any]:
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as exc:
+        raise RuntimeError("google-genai SDK is not installed. Run 'pip install google-genai'.") from exc
+
+    api_key = gemini_api_key()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is not set.")
+
+    client = genai.Client(api_key=api_key)
+
+    contents: list[Any] = []
+    for candidate_path in image_paths:
+        encoded_bytes = candidate_path.read_bytes()
+        contents.append(types.Part.from_bytes(data=encoded_bytes, mime_type="image/jpeg"))
+    contents.append(prompt_text)
+
+    config = types.GenerateContentConfig(
+        system_instruction=system_instruction,
+        response_mime_type="application/json",
+        temperature=0.0,
+    )
+
+    response = await client.aio.models.generate_content(
+        model=model,
+        contents=contents,
+        config=config,
+    )
+
+    text = response.text
+    if not text:
+        raise RuntimeError("Gemini API returned an empty extraction result.")
+    return json.loads(text)
+
+
+async def extract_invoice_openai(
+    image_paths: list[Path],
+    prompt_text: str,
+    model: str,
+    system_instruction: str = SYSTEM_PROMPT,
+) -> dict[str, Any]:
     base_url = openai_base_url()
     client = AsyncOpenAI(api_key=openai_bearer_credential(), base_url=base_url)
-    image_paths, image_note = ai_primary_image_paths(image_path) if primary else focused_ai_image_paths(image_path)
 
-    content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                f"{EXTRACTION_INSTRUCTIONS}\n\n"
-                f"{image_note} Use the product table crop for line_items and the document "
-                "details crop/full document for Delivery Order number, date, and contact person. "
-                "For dates printed as DD.MM.YYYY, interpret them as day.month.year."
-            ),
-        }
-    ]
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
     for candidate_path in image_paths:
         encoded = base64.b64encode(candidate_path.read_bytes()).decode("ascii")
         content.append(
@@ -2697,18 +2770,35 @@ async def extract_invoice(image_path: Path, model: str, primary: bool = False) -
         temperature=0,
         response_format={"type": "json_object"},
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": content,
-            },
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": content},
         ],
     )
 
-    content = response.choices[0].message.content
-    if not content:
+    content_str = response.choices[0].message.content
+    if not content_str:
         raise RuntimeError("OpenAI returned an empty extraction result.")
-    data = json.loads(content)
+    return json.loads(content_str)
+
+
+async def extract_invoice(image_path: Path, model: str | None = None, primary: bool = False) -> dict[str, Any]:
+    provider = configured_ai_provider()
+    image_paths, image_note = ai_primary_image_paths(image_path) if primary else focused_ai_image_paths(image_path)
+
+    prompt_text = (
+        f"{EXTRACTION_INSTRUCTIONS}\n\n"
+        f"{image_note} Use the product table crop for line_items and the document "
+        "details crop/full document for Delivery Order number, date, and contact person. "
+        "For dates printed as DD.MM.YYYY, interpret them as day.month.year."
+    )
+
+    if provider == "gemini":
+        target_model = model or gemini_model_name()
+        data = await extract_invoice_gemini(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
+    else:
+        target_model = model or openai_model_name()
+        data = await extract_invoice_openai(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
+
     data.setdefault("line_items", [])
     repair_line_item_arithmetic(data)
     validate_ai_extraction(data)
@@ -2719,14 +2809,13 @@ async def extract_invoice(image_path: Path, model: str, primary: bool = False) -
 
 async def reconcile_invoice_extraction(
     image_path: Path,
-    model: str,
+    model: str | None,
     first_data: dict[str, Any],
     ocr_text: str,
     expected_count: int,
     actual_count: int,
 ) -> dict[str, Any]:
-    base_url = openai_base_url()
-    client = AsyncOpenAI(api_key=openai_bearer_credential(), base_url=base_url)
+    provider = configured_ai_provider()
     image_paths, image_note = focused_ai_image_paths(image_path)
     first_header_json = json.dumps(
         {
@@ -2741,49 +2830,26 @@ async def reconcile_invoice_extraction(
     )
     trimmed_ocr_text = ocr_text[-8000:]
 
-    content: list[dict[str, Any]] = [
-        {
-            "type": "text",
-            "text": (
-                RECONCILIATION_INSTRUCTIONS.format(
-                    expected_count=expected_count,
-                    actual_count=actual_count,
-                )
-                + "\n\nFirst extraction header fields:\n"
-                + first_header_json
-                + "\n\nOCR text:\n"
-                + trimmed_ocr_text
-                + "\n\nImage set:\n"
-                + image_note
-            ),
-        }
-    ]
-    for candidate_path in image_paths:
-        encoded = base64.b64encode(candidate_path.read_bytes()).decode("ascii")
-        content.append(
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{encoded}",
-                    "detail": "high",
-                },
-            }
+    prompt_text = (
+        RECONCILIATION_INSTRUCTIONS.format(
+            expected_count=expected_count,
+            actual_count=actual_count,
         )
-
-    response = await client.chat.completions.create(
-        model=model,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": content},
-        ],
+        + "\n\nFirst extraction header fields:\n"
+        + first_header_json
+        + "\n\nOCR text:\n"
+        + trimmed_ocr_text
+        + "\n\nImage set:\n"
+        + image_note
     )
 
-    content = response.choices[0].message.content
-    if not content:
-        raise RuntimeError("OpenAI returned an empty reconciliation result.")
-    data = json.loads(content)
+    if provider == "gemini":
+        target_model = model or gemini_model_name()
+        data = await extract_invoice_gemini(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
+    else:
+        target_model = model or openai_model_name()
+        data = await extract_invoice_openai(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
+
     data.setdefault("line_items", [])
     repair_line_item_arithmetic(data)
     validate_ai_extraction(data)
@@ -3781,6 +3847,7 @@ def status_text(context: ContextTypes.DEFAULT_TYPE) -> str:
         f"Authorized chats: {len(configured_allowed_chat_ids()) if configured_allowed_chat_ids() else 'any'}",
         f"Testing chats: {len(configured_test_chat_ids())}",
         f"PDF export: {'enabled' if env_bool('EXPORT_PDF', DEFAULT_EXPORT_PDF) else 'disabled'}",
+        f"AI provider: {configured_ai_provider().upper()} ({ai_model_name()})",
         f"AI primary: {'enabled' if ai_primary_enabled() else 'disabled'}",
         f"Local OCR: {'enabled' if env_bool('LOCAL_OCR_ENABLED', True) else 'disabled'}",
         f"Register: {register_path}",
@@ -4184,7 +4251,7 @@ async def process_invoice_image(
             extraction_reason = "Identical source image was processed before, so the previous extraction was reused."
             logging.info("Reused cached extraction for invoice_id=%s source_hash=%s", invoice_id, source_image_hash[:12] if source_image_hash else None)
         else:
-            model = openai_model_name()
+            model = ai_model_name()
             data, extraction_method, extraction_reason = await extract_invoice_hybrid(image_path, model)
             if source_image_hash:
                 data["source_image_hash"] = source_image_hash
