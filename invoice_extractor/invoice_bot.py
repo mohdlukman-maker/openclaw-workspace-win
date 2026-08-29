@@ -4383,9 +4383,6 @@ async def process_invoice_image(
         submitter.full_name if submitter else "",
     )
     document_type = normalize_document_type(data)
-    method_note = f"\nMethod used: {extraction_method}"
-    if extraction_reason:
-        method_note += f"\nReason: {extraction_reason}"
     paired_data = pending_review_data(pending)
     if not paired_data:
         missing = pending_missing_document_types(pending)
@@ -4393,7 +4390,7 @@ async def process_invoice_image(
         await safe_reply_text(
             update,
             (
-                f"{document_type_label(document_type)} extracted and stored.{method_note}\n"
+                f"{document_type_label(document_type)} extracted and stored.\n"
                 f"D.O / Invoice No: {tax_invoice}\n"
                 f"Date: {data.get('invoice_date') or 'date unknown'}\n"
                 f"Contact: {data.get('contact_person') or 'contact unknown'}\n"
@@ -4410,7 +4407,7 @@ async def process_invoice_image(
     line_item_count = len(line_items_from_data(data))
     await safe_reply_text(
         update,
-        f"D.O + Invoice pair ready for review.{method_note}\n{pending_pair_summary(pending)}\n\nMatched No: {tax_invoice}\nP.O date source: {data.get('invoice_date') or 'date unknown'}\nContact: {data.get('contact_person') or 'contact unknown'}\nP.O line items found: {line_item_count}",
+        f"D.O + Invoice pair ready for review.\n{pending_pair_summary(pending)}\n\nMatched No: {tax_invoice}\nP.O date source: {data.get('invoice_date') or 'date unknown'}\nContact: {data.get('contact_person') or 'contact unknown'}\nP.O line items found: {line_item_count}",
         "extraction summary",
     )
     await reply_long_text(update, format_review_warnings(data))
