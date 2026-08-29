@@ -2763,29 +2763,55 @@ async def extract_invoice_gemini(
     )
 
     models_to_try = [model]
-    for fallback in ("gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"):
+    for fallback in ("gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.1-pro-preview"):
         if fallback not in models_to_try:
             models_to_try.append(fallback)
 
     last_error: Exception | None = None
     for attempt_model in models_to_try:
-        try:
-            response = await client.aio.models.generate_content(
-                model=attempt_model,
-                contents=contents,
-                config=config,
-            )
-            text = response.text
-            if not text:
-                raise RuntimeError("Gemini API returned an empty extraction result.")
-            return json.loads(text)
-        except Exception as exc:
-            last_error = exc
-            exc_str = str(exc).lower()
-            if "404" in exc_str or "not_found" in exc_str:
-                logging.warning("Gemini model %s not available (%s), trying next fallback...", attempt_model, exc)
-                continue
-            raise
+        for attempt in range(2):
+            try:
+                response = await client.aio.models.generate_content(
+                    model=attempt_model,
+                    contents=contents,
+                    config=config,
+                )
+                text = response.text
+                if not text:
+                    raise RuntimeError("Gemini API returned an empty extraction result.")
+                return json.loads(text)
+            except Exception as exc:
+                last_error = exc
+                exc_str = str(exc).lower()
+                is_transient = any(
+                    err in exc_str
+                    for err in (
+                        "503",
+                        "unavailable",
+                        "high demand",
+                        "overloaded",
+                        "429",
+                        "resource_exhausted",
+                        "rate_limit",
+                        "quota",
+                        "500",
+                        "internal",
+                        "404",
+                        "not_found",
+                    )
+                )
+                if is_transient:
+                    logging.warning(
+                        "Gemini model %s attempt %d returned transient error: %s; trying fallback...",
+                        attempt_model,
+                        attempt + 1,
+                        exc,
+                    )
+                    await asyncio.sleep(1.0)
+                    if "404" in exc_str or "not_found" in exc_str:
+                        break  # Move immediately to the next model
+                    continue
+                raise
 
     if last_error:
         raise last_error
@@ -2843,7 +2869,15 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
 
     if provider == "gemini":
         target_model = model or gemini_model_name()
-        data = await extract_invoice_gemini(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
+        try:
+            data = await extract_invoice_gemini(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
+        except Exception as exc:
+            if os.getenv("OPENAI_API_KEY") or os.getenv("OPENROUTER_API_KEY"):
+                logging.warning("Gemini extraction failed (%s), attempting OpenAI fallback...", exc)
+                openai_model = openai_model_name()
+                data = await extract_invoice_openai(image_paths, prompt_text, openai_model, SYSTEM_PROMPT)
+            else:
+                raise
     else:
         target_model = model or openai_model_name()
         data = await extract_invoice_openai(image_paths, prompt_text, target_model, SYSTEM_PROMPT)
