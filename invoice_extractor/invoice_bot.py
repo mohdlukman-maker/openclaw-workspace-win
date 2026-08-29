@@ -13,12 +13,14 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import date as datetime_date, datetime, timedelta, timezone
+import math
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from openai import APIStatusError, AsyncOpenAI, AuthenticationError
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageStat
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.error import TelegramError, TimedOut
@@ -3434,10 +3436,17 @@ def save_template_workbook(
     for offset, item in enumerate(line_items):
         row = TEMPLATE_FIRST_ITEM_ROW + offset
         worksheet[f"B{row}"] = item.get("item_no") or offset + 1
-        worksheet[f"C{row}"] = item.get("description")
+        desc = str(item.get("description") or "").strip()
+        desc_cell = worksheet[f"C{row}"]
+        desc_cell.value = desc
+        desc_cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
         worksheet[f"G{row}"] = format_quantity_with_unit(item)
         worksheet[f"H{row}"] = normalize_number(item.get("unit_price"))
         worksheet[f"J{row}"] = normalize_number(item.get("line_total"))
+        if desc:
+            lines = max(1, math.ceil(len(desc) / 38))
+            if lines > 1:
+                worksheet.row_dimensions[row].height = max(24.0, lines * 16.0)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(target_path)
@@ -3488,7 +3497,10 @@ def save_material_requisition_workbook(
     for offset, item in enumerate(line_items):
         row = MR_FIRST_ITEM_ROW + offset
         worksheet[f"B{row}"] = item.get("item_no") or offset + 1
-        worksheet[f"C{row}"] = item.get("description") or ""
+        desc = str(item.get("description") or "").strip()
+        desc_cell = worksheet[f"C{row}"]
+        desc_cell.value = desc
+        desc_cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
         worksheet[f"K{row}"] = format_quantity_with_unit(item) or ""
         unit_price = normalize_number(item.get("unit_price"))
         if unit_price is not None:
@@ -3496,6 +3508,10 @@ def save_material_requisition_workbook(
         line_total = normalize_number(item.get("line_total"))
         if line_total is not None:
             worksheet[f"N{row}"] = line_total
+        if desc:
+            lines = max(1, math.ceil(len(desc) / 38))
+            if lines > 1:
+                worksheet.row_dimensions[row].height = max(24.0, lines * 16.0)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(target_path)
