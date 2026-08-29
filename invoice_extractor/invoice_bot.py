@@ -391,7 +391,7 @@ PLACEHOLDER_CREDENTIALS = {
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENAI_MODEL = "openai/gpt-5.4-mini"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.7-flash"
 
 
 AUTH_HELP = (
@@ -1151,7 +1151,10 @@ def gemini_api_key() -> str | None:
 
 
 def gemini_model_name() -> str:
-    return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+    model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
+    if model in ("gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"):
+        return "gemini-3.7-flash"
+    return model
 
 
 def openai_bearer_credential() -> str:
@@ -2759,16 +2762,34 @@ async def extract_invoice_gemini(
         temperature=0.0,
     )
 
-    response = await client.aio.models.generate_content(
-        model=model,
-        contents=contents,
-        config=config,
-    )
+    models_to_try = [model]
+    for fallback in ("gemini-3.7-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro-preview"):
+        if fallback not in models_to_try:
+            models_to_try.append(fallback)
 
-    text = response.text
-    if not text:
-        raise RuntimeError("Gemini API returned an empty extraction result.")
-    return json.loads(text)
+    last_error: Exception | None = None
+    for attempt_model in models_to_try:
+        try:
+            response = await client.aio.models.generate_content(
+                model=attempt_model,
+                contents=contents,
+                config=config,
+            )
+            text = response.text
+            if not text:
+                raise RuntimeError("Gemini API returned an empty extraction result.")
+            return json.loads(text)
+        except Exception as exc:
+            last_error = exc
+            exc_str = str(exc).lower()
+            if "404" in exc_str or "not_found" in exc_str:
+                logging.warning("Gemini model %s not available (%s), trying next fallback...", attempt_model, exc)
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Gemini extraction failed on all attempted models.")
 
 
 async def extract_invoice_openai(
