@@ -744,7 +744,14 @@ def env_bool(name: str, default: bool) -> bool:
 
 
 def ai_fallback_enabled() -> bool:
-    return env_bool("AI_FALLBACK_ENABLED", False)
+    has_ai_key = bool(
+        gemini_api_key()
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("OPENAI_BEARER_TOKEN")
+        or os.getenv("OPENAI_TOKEN_COMMAND")
+    )
+    return env_bool("AI_FALLBACK_ENABLED", has_ai_key)
 
 
 def ai_primary_enabled() -> bool:
@@ -3863,6 +3870,7 @@ def status_text(context: ContextTypes.DEFAULT_TYPE) -> str:
         f"Testing chats: {len(configured_test_chat_ids())}",
         f"PDF export: {'enabled' if env_bool('EXPORT_PDF', DEFAULT_EXPORT_PDF) else 'disabled'}",
         f"AI provider: {configured_ai_provider().upper()} ({ai_model_name()})",
+        f"AI fallback: {'enabled' if ai_fallback_enabled() else 'disabled'}",
         f"AI primary: {'enabled' if ai_primary_enabled() else 'disabled'}",
         f"Local OCR: {'enabled' if env_bool('LOCAL_OCR_ENABLED', True) else 'disabled'}",
         f"Register: {register_path}",

@@ -501,16 +501,19 @@ class OpenAIErrorClassificationTests(unittest.TestCase):
 
 class AIProviderTests(unittest.TestCase):
     def test_configured_ai_provider_detects_gemini(self) -> None:
-        from invoice_bot import configured_ai_provider, gemini_api_key, gemini_model_name
+        from invoice_bot import ai_fallback_enabled, configured_ai_provider, gemini_api_key, gemini_model_name
 
         old_gemini = os.environ.get("GEMINI_API_KEY")
         old_provider = os.environ.get("AI_PROVIDER")
+        old_fallback = os.environ.get("AI_FALLBACK_ENABLED")
         try:
             os.environ["GEMINI_API_KEY"] = "AIzaSyFakeKey123"
             os.environ.pop("AI_PROVIDER", None)
+            os.environ.pop("AI_FALLBACK_ENABLED", None)
             self.assertEqual(gemini_api_key(), "AIzaSyFakeKey123")
             self.assertEqual(configured_ai_provider(), "gemini")
             self.assertEqual(gemini_model_name(), "gemini-2.5-flash")
+            self.assertTrue(ai_fallback_enabled())
 
             os.environ["AI_PROVIDER"] = "openai"
             self.assertEqual(configured_ai_provider(), "openai")
@@ -526,6 +529,10 @@ class AIProviderTests(unittest.TestCase):
                 os.environ["AI_PROVIDER"] = old_provider
             else:
                 os.environ.pop("AI_PROVIDER", None)
+            if old_fallback is not None:
+                os.environ["AI_FALLBACK_ENABLED"] = old_fallback
+            else:
+                os.environ.pop("AI_FALLBACK_ENABLED", None)
 
 
 if __name__ == "__main__":
