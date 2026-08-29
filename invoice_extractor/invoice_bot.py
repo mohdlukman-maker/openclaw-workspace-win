@@ -1264,24 +1264,38 @@ def sender_invoice_workbook_dir(submitter_chat_id: Any = None) -> Path:
 
 def configured_invoice_template_path() -> Path | None:
     value = os.getenv("INVOICE_TEMPLATE_PATH")
-    if value in (None, ""):
-        return DEFAULT_INVOICE_TEMPLATE_PATH if DEFAULT_INVOICE_TEMPLATE_PATH.exists() else None
+    if value not in (None, ""):
+        path = Path(value)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path.resolve()
 
-    path = Path(value)
-    if not path.is_absolute():
-        path = BASE_DIR / path
-    return path.resolve()
+    for candidate in (
+        DEFAULT_INVOICE_TEMPLATE_PATH,
+        BASE_DIR / "templates" / "purchase_order_template.xlsx",
+        BASE_DIR / "data" / "templates" / "purchase_order_template.xlsx",
+    ):
+        if candidate.exists():
+            return candidate.resolve()
+    return None
 
 
 def configured_material_requisition_template_path() -> Path | None:
     value = os.getenv("MATERIAL_REQUISITION_TEMPLATE_PATH")
-    if value in (None, ""):
-        return DEFAULT_MATERIAL_REQUISITION_TEMPLATE_PATH if DEFAULT_MATERIAL_REQUISITION_TEMPLATE_PATH.exists() else None
+    if value not in (None, ""):
+        path = Path(value)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return path.resolve()
 
-    path = Path(value)
-    if not path.is_absolute():
-        path = BASE_DIR / path
-    return path.resolve()
+    for candidate in (
+        DEFAULT_MATERIAL_REQUISITION_TEMPLATE_PATH,
+        BASE_DIR / "templates" / "material_requisition_template.xlsx",
+        BASE_DIR / "data" / "templates" / "material_requisition_template.xlsx",
+    ):
+        if candidate.exists():
+            return candidate.resolve()
+    return None
 
 
 def configured_invoice_register_path() -> Path:
@@ -3328,7 +3342,7 @@ def clear_template_items(worksheet: Any) -> None:
 
 def clear_material_requisition_items(worksheet: Any) -> None:
     for row in range(MR_FIRST_ITEM_ROW, MR_LAST_ITEM_ROW + 1):
-        for col in ("B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N"):
+        for col in ("B", "C", "H", "K", "L", "N"):
             worksheet[f"{col}{row}"] = None
 
 
