@@ -2695,9 +2695,16 @@ async def is_authorized(update: Update) -> bool:
     chat_id = str(update.effective_chat.id) if update.effective_chat else None
     if chat_id and chat_id in allowed_chat_ids:
         return True
-    logging.warning("Rejected message from unauthorized chat_id=%s", update.effective_chat.id if update.effective_chat else None)
+    logging.warning("Rejected message from unauthorized chat_id=%s", chat_id)
     if update.message:
-        await update.message.reply_text("This bot is not authorized for this chat.")
+        await update.message.reply_text(
+            f"⚠️ *This bot is not authorized for this chat.*\n\n"
+            f"Your Chat ID is: `{chat_id}`\n\n"
+            f"To authorize your account, add your Chat ID to `.env` on your server:\n"
+            f"`TELEGRAM_ALLOWED_CHAT_IDS={chat_id}`\n\n"
+            f"Or leave `TELEGRAM_ALLOWED_CHAT_IDS=` empty in `.env` to allow all chats.",
+            parse_mode="Markdown",
+        )
     return False
 
 
