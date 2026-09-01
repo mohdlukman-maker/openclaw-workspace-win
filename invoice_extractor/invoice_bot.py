@@ -4272,8 +4272,40 @@ async def auto_save_when_workbook_available(
         )
 
 
+def onboarding_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("📸 How to Upload Photos", callback_data="onboard_upload"),
+                InlineKeyboardButton("🏢 Supported Suppliers", callback_data="onboard_suppliers"),
+            ],
+            [
+                InlineKeyboardButton("👤 My Account & Initials", callback_data="onboard_account"),
+            ],
+        ]
+    )
+
+
+def onboarding_welcome_text(user_name: str, initials: str) -> str:
+    return (
+        f"👋 *Welcome to Blackfox PO & Invoice Generator!*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Hello *{user_name}*! I automatically extract invoices, delivery orders, and quotations to create official *Purchase Orders (PO)* and *Material Requisitions (MR)* in seconds.\n\n"
+        f"📋 *Your Staff Profile:*\n"
+        f"• Staff Name: `{user_name}`\n"
+        f"• Auto Initials: `{initials}`\n\n"
+        f"🚀 *Quick 3-Step Guide:*\n"
+        f"1️⃣ *Upload:* Send a D.O + Invoice photo together (as an album or 2 photos), or a single Quotation.\n"
+        f"2️⃣ *Review:* I will instantly extract all items, quantities, prices, and totals.\n"
+        f"3️⃣ *One-Tap Save:* Tap `[ 💾 Save & Generate PO ]` to receive your ready `.xlsx` and `.pdf` files!\n\n"
+        f"Tap the buttons below to explore guides, or simply send a document photo to start right away!"
+    )
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     del context
+    if not await is_authorized(update):
+        return
     if update.effective_chat:
         user = update.effective_user
         logging.info(
@@ -4282,17 +4314,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             user.full_name if user else None,
             user.username if user else None,
         )
-    if update.message:
-        await update.message.reply_text(
-            "Send me the D.O photo and the matching invoice photo. I will compare both documents first, then wait for /save before writing the P.O to Excel.\n\n"
-            "Commands (type / to see all):\n"
-            "/save \u2014 Save with auto filename\n"
-            "/savewithdifferentname <name> \u2014 Save with custom filename\n"
-            "/editnothensave <number> \u2014 Save with specific running number\n"
-            "/review \u2014 Show current pending pair\n"
-            "/cancel \u2014 Cancel pending review\n"
-            "/status \u2014 Show bot configuration"
-        )
+    user = update.effective_user
+    user_name = user.full_name if user else "there"
+    initials = get_user_initials(user_name)
+    welcome_text = onboarding_welcome_text(user_name, initials)
+    await safe_reply_text(update, welcome_text, "start onboarding guide", reply_markup=onboarding_keyboard())
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -4924,6 +4950,75 @@ async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     data = query.data or ""
+    if data.startswith("onboard_"):
+        user = update.effective_user
+        user_name = user.full_name if user else "there"
+        initials = get_user_initials(user_name)
+        chat_id = str(update.effective_chat.id if update.effective_chat else "")
+
+        if data == "onboard_main":
+            await query.answer()
+            await query.edit_message_text(
+                onboarding_welcome_text(user_name, initials),
+                parse_mode="Markdown",
+                reply_markup=onboarding_keyboard(),
+            )
+        elif data == "onboard_upload":
+            await query.answer()
+            back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Main Guide", callback_data="onboard_main")]])
+            await query.edit_message_text(
+                "📸 *Guide: Uploading Documents*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "• *For Tuju Galaxy:*\n"
+                "  Send both the *Delivery Order (D.O)* and *Tax Invoice* photos together as an album (or two quick photos).\n\n"
+                "• *For Walihin Petroleum / Tech / Diesel:*\n"
+                "  Send the *Quotation* or *Tax Invoice* photo/PDF. No second document needed.\n\n"
+                "• *For Other Suppliers:*\n"
+                "  Send the Quotation, Invoice, or Cash Bill photo directly.\n\n"
+                "💡 *Pro-Tips for 100% Accuracy:*\n"
+                "✓ Lay document flat on a well-lit surface.\n"
+                "✓ Ensure all table rows, quantities, and prices are visible.\n"
+                "✓ You can upload as standard photos or uncompressed image files.",
+                parse_mode="Markdown",
+                reply_markup=back_kb,
+            )
+        elif data == "onboard_suppliers":
+            await query.answer()
+            back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Main Guide", callback_data="onboard_main")]])
+            await query.edit_message_text(
+                "🏢 *Supported Suppliers & Templates*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "1. *TUJU GALAXY SDN BHD*\n"
+                "   • Category: `TUJU`\n"
+                "   • Formats: D.O + Tax Invoice Pair\n"
+                "   • Output: `BFE PO TUJU <MONTH> <SEQ>.xlsx`\n\n"
+                "2. *WALIHIN PETROLEUM SDN BHD*\n"
+                "   • Category: `TECH`\n"
+                "   • Formats: Diesel Quotation / Tax Invoice\n"
+                "   • Auto Bank: Maybank `561118064592`\n"
+                "   • Output: `BFE PO TECH <MMYY> <SEQ> WALIHIN PETROLEUM SDN BHD.xlsx`\n\n"
+                "3. *General Multi-Supplier*\n"
+                "   • Formats: Standard Quotation, Cash Bill, or Invoice\n"
+                "   • Auto extracts vendor name, address, contact, and bank info.",
+                parse_mode="Markdown",
+                reply_markup=back_kb,
+            )
+        elif data == "onboard_account":
+            await query.answer()
+            back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back to Main Guide", callback_data="onboard_main")]])
+            await query.edit_message_text(
+                f"👤 *Your Staff Profile & PR Stamping*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• *Telegram Name:* {user_name}\n"
+                f"• *Your Chat ID:* `{chat_id}`\n"
+                f"• *Auto Initials:* `{initials}`\n"
+                f"• *PR Number Format:* `BFE/PO/<CATEGORY>/{initials}/<MMYY>-<SEQ>`\n\n"
+                f"💡 *Note:* The bot automatically derives your initials from your Telegram First & Last Name to personalize every PO & MR you generate.",
+                parse_mode="Markdown",
+                reply_markup=back_kb,
+            )
+        return
+
     if data == "btn_save":
         await query.answer("Generating Purchase Order & MR...", show_alert=False)
         await save_pending_with_mode(update, context, force_all=False)
@@ -5347,7 +5442,7 @@ def build_application(token: str) -> Application:
     application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document_image))
     application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Document.IMAGE, handle_other_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    application.add_handler(CallbackQueryHandler(handle_action_callback, pattern="^btn_"))
+    application.add_handler(CallbackQueryHandler(handle_action_callback, pattern="^(btn_|onboard_)"))
     application.add_handler(CallbackQueryHandler(registration_flow.registration_callback, pattern="^reg_"))
     application.add_error_handler(on_error)
     return application
