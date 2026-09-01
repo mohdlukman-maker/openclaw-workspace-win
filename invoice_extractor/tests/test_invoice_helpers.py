@@ -628,6 +628,32 @@ class ServiceOrderTests(unittest.TestCase):
         self.assertIn("TUJU GALAKSI SDN BHD", stem)
         self.assertIn("BFE/SO/TUJU/AN/0726/", data.get("so_number", ""))
 
+    def test_service_order_pending_is_standalone(self) -> None:
+        from unittest.mock import MagicMock
+        from datetime import datetime, timezone
+        from invoice_bot import save_pending_review, pending_review_data
+
+        context = MagicMock()
+        context.chat_data = {}
+        data = {
+            "order_type": "service_order",
+            "supplier_name": "TUJU GALAKSI SDN BHD",
+            "tax_invoice": "TG-K09124",
+            "invoice_date": "2026-07-24",
+            "line_items": [{"description": "Forklift Service", "quantity": 1, "unit_price": 200}],
+        }
+        pending = save_pending_review(
+            context=context,
+            data=data,
+            invoice_id="inv123",
+            received_at=datetime(2026, 7, 24, tzinfo=timezone.utc),
+            image_path=Path("dummy.png"),
+            submitter_chat_id="12345",
+            submitter_name="Test User",
+        )
+        self.assertIsNotNone(pending_review_data(pending))
+        self.assertEqual(pending["data"]["tax_invoice"], "TG-K09124")
+
     def test_save_service_order_workbook_openpyxl(self) -> None:
         import openpyxl
         from invoice_bot import (

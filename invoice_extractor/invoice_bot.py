@@ -3343,8 +3343,10 @@ def save_pending_review(
         data, configured_default_supplier(), configured_supplier_aliases()
     )
     data["supplier_profile"] = supplier_profile
+    is_so = is_service_order(data)
     is_standalone = (
-        document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL)
+        is_so
+        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER)
         or supplier_profile.get("category") == "TECH"
         or "walihin" in str(supplier_profile.get("display_name", "")).lower()
     )
