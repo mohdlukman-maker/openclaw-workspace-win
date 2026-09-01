@@ -33,12 +33,14 @@ KNOWN_SUPPLIER_PROFILES = {
     "TUJU GALAXY": {
         "category": "TUJU",
         "display_name": "TUJU GALAKSI SDN BHD",
-        "address_line1": "SL.20,1st Floor, Block 16, KCLD, Galacity,",
-        "address_line2": "93350 Kuching Sarawak",
-        "tel_fax": "TEL : 082-265809 / 082-265810",
+        "address_line1": "SL 20, 1ST FLOOR, BLOCK 16, KCLD (GALA CITY)",
+        "address_line2": "93350 KUCHING, SARAWAK",
+        "tel_fax": "TEL : 082-265 809 FAX: 082-265810",
         "email": "",
         "bank_account": "No. Account : 2233006809(UOB)",
         "default_contact": "Zarin 019-9396812",
+        "vendor_contact_person": "Aw Kim Yeong",
+        "vendor_contact_tel": "TEL : 012-217 9508",
         "aliases": ["tuju galaxy", "tuju galaksi", "tuju", "tg-"],
     },
 }

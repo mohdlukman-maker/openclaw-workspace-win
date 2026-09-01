@@ -586,5 +586,99 @@ class AIProviderTests(unittest.TestCase):
                 os.environ.pop("AI_FALLBACK_ENABLED", None)
 
 
+class ServiceOrderTests(unittest.TestCase):
+    def test_is_service_order_detection(self) -> None:
+        from invoice_bot import is_service_order
+
+        data_so1 = {"order_type": "service_order"}
+        self.assertTrue(is_service_order(data_so1))
+
+        data_so2 = {"service_description": "Services one unit Heli forklift at HPJ"}
+        self.assertTrue(is_service_order(data_so2))
+
+        data_so3 = {
+            "line_items": [
+                {"description": "Transmission filter", "quantity": 1, "unit_price": 23.4},
+                {"description": "Labour charges for maintenance work", "quantity": 1, "unit_price": 230},
+            ]
+        }
+        self.assertTrue(is_service_order(data_so3))
+
+        data_po = {
+            "line_items": [
+                {"description": "Wash coarse sand", "quantity": 115.71, "unit_price": 59.0},
+            ]
+        }
+        self.assertFalse(is_service_order(data_po))
+
+    def test_ensure_so_output_stem_and_so_number(self) -> None:
+        from invoice_bot import ensure_po_output_stem
+
+        data = {
+            "order_type": "service_order",
+            "invoice_date": "2026-07-24",
+            "supplier_name": "TUJU GALAKSI SDN BHD",
+            "submitter_name": "Azyan Nasuha",
+            "line_items": [
+                {"description": "Services one unit Heli forklift", "quantity": 1, "unit_price": 230},
+            ],
+        }
+        stem = ensure_po_output_stem(data)
+        self.assertIn("BFE SO TECH 0726", stem)
+        self.assertIn("TUJU GALAKSI SDN BHD", stem)
+        self.assertIn("BFE/SO/TUJU/AN/0726/", data.get("so_number", ""))
+
+    def test_save_service_order_workbook_openpyxl(self) -> None:
+        import openpyxl
+        from invoice_bot import (
+            DEFAULT_SERVICE_ORDER_TEMPLATE_PATH,
+            SO_SHEET_NAME,
+            save_service_order_workbook,
+        )
+
+        if not DEFAULT_SERVICE_ORDER_TEMPLATE_PATH.exists():
+            self.skipTest("SO template not found")
+
+        data = {
+            "tax_invoice": "TG-K09124",
+            "invoice_date": "2026-07-24",
+            "submitter_name": "Azyan Nasuha",
+            "service_description": "Services one unit Heli forklift at HPJ",
+            "so_number": "BFE/SO/TUJU/AN/0726/012",
+            "supplier_name": "TUJU GALAKSI SDN BHD",
+            "order_type": "service_order",
+            "line_items": [
+                {"item_no": 1, "description": "Transmission filter", "quantity": 1.0, "quantity_unit": "pc", "unit_price": 23.4, "line_total": 23.4},
+                {"item_no": 2, "description": "Oil filter", "quantity": 1.0, "quantity_unit": "pc", "unit_price": 23.4, "line_total": 23.4},
+                {"item_no": 3, "description": "Fuel filter", "quantity": 1.0, "quantity_unit": "pc", "unit_price": 36.5, "line_total": 36.5, "warranty": "-"},
+                {"item_no": 4, "description": "Engine Oil", "quantity": 8.0, "quantity_unit": "ltr", "unit_price": 23.5, "line_total": 188.0},
+                {"item_no": 5, "description": "Greasing", "quantity": 1.0, "quantity_unit": "set", "unit_price": 39.0, "line_total": 39.0},
+                {"item_no": 6, "description": "Labour charges for maintenance work", "quantity": 1.0, "quantity_unit": "unit", "unit_price": 230.0, "line_total": 230.0},
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = Path(tmpdir) / "BFE SO TECH 0726 012 TUJU GALAKSI SDN BHD.xlsx"
+            saved_count = save_service_order_workbook(out_file, DEFAULT_SERVICE_ORDER_TEMPLATE_PATH, data)
+            self.assertEqual(saved_count, 6)
+            self.assertTrue(out_file.exists())
+
+            wb = openpyxl.load_workbook(out_file, data_only=False)
+            self.assertIn(SO_SHEET_NAME, wb.sheetnames)
+            ws = wb[SO_SHEET_NAME]
+            self.assertEqual(ws["I15"].value, "BFE/SO/TUJU/AN/0726/012")
+            self.assertEqual(ws["I17"].value, "TG-K09124")
+            self.assertEqual(ws["I18"].value, "=I17")
+            self.assertEqual(ws["B27"].value, "Services one unit Heli forklift at HPJ")
+            self.assertEqual(ws["A28"].value, 1)
+            self.assertEqual(ws["B28"].value, "Transmission filter")
+            self.assertEqual(ws["F28"].value, "1 pcs")
+            self.assertEqual(ws["G28"].value, 23.4)
+            self.assertEqual(ws["H28"].value, 23.4)
+            self.assertEqual(ws["H51"].value, "=SUM(H27:H50)")
+            self.assertIn("Azyan Nasuha", str(ws["G62"].value))
+
+
 if __name__ == "__main__":
     unittest.main()
+

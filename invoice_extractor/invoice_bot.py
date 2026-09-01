@@ -54,6 +54,7 @@ DOCUMENT_TYPE_DELIVERY_ORDER = "delivery_order"
 DOCUMENT_TYPE_INVOICE = "invoice"
 DOCUMENT_TYPE_QUOTATION = "quotation"
 DOCUMENT_TYPE_CASH_BILL = "cash_bill"
+DOCUMENT_TYPE_SERVICE_ORDER = "service_order"
 AUTO_SAVE_RETRY_SECONDS = 10
 AUTO_SAVE_MAX_ATTEMPTS = 90
 DEFAULT_LOCAL_OCR_MIN_CONFIDENCE = 55.0
@@ -66,6 +67,7 @@ DEFAULT_IMAGE_QUALITY_MIN_BRIGHTNESS = 45.0
 DEFAULT_IMAGE_QUALITY_MAX_BRIGHTNESS = 225.0
 DEFAULT_INVOICE_TEMPLATE_PATH = DATA_DIR / "templates" / "purchase_order_template.xlsx"
 DEFAULT_MATERIAL_REQUISITION_TEMPLATE_PATH = DATA_DIR / "templates" / "material_requisition_template.xlsx"
+DEFAULT_SERVICE_ORDER_TEMPLATE_PATH = DATA_DIR / "templates" / "service_order_template.xlsx"
 DEFAULT_INVOICE_REGISTER_PATH = DATA_DIR / "invoice_register.csv"
 DEFAULT_PROCUREMENT_DIR = DATA_DIR / "PROCUREMENT"
 DEFAULT_PROCUREMENT_SUPPLIER_NAME = "TUJU GALAXY"
@@ -78,6 +80,9 @@ TUJU_PROFILE_ENABLED = True
 TEMPLATE_SHEET_NAME = "PURCHASEORDER"
 TEMPLATE_FIRST_ITEM_ROW = 26
 TEMPLATE_LAST_ITEM_ROW = 54
+SO_SHEET_NAME = "SERVICES ODER"
+SO_FIRST_ITEM_ROW = 28
+SO_LAST_ITEM_ROW = 49
 MR_SHEET_NAME = "MATERIAL REQUISITION"
 MR_FIRST_ITEM_ROW = 19
 MR_LAST_ITEM_ROW = 40
@@ -310,10 +315,12 @@ INVOICE_HEADERS = [
     "Amount",
 ]
 
-SYSTEM_PROMPT = """You extract procurement document data (Quotation, Tax Invoice, Delivery Order, Cash Bill, Receipt) from images.
+SYSTEM_PROMPT = """You extract procurement document data (Quotation, Tax Invoice, Delivery Order, Service Order, Cash Bill, Receipt) from images.
 Return only valid JSON matching this schema:
 {
-  "document_type": "quotation" | "invoice" | "delivery_order" | "cash_bill" | "unknown",
+  "document_type": "quotation" | "invoice" | "delivery_order" | "cash_bill" | "service_order" | "unknown",
+  "order_type": "purchase_order" | "service_order",
+  "service_description": string | null,
   "supplier_name": string | null,
   "supplier_address": string | null,
   "supplier_phone": string | null,
@@ -332,7 +339,8 @@ Return only valid JSON matching this schema:
       "quantity": number | null,
       "quantity_unit": string | null,
       "unit_price": number | null,
-      "line_total": number | null
+      "line_total": number | null,
+      "warranty": string | null
     }
   ]
 }
@@ -340,6 +348,7 @@ Use null when a field is not visible. Make confidence a number from 0 to 1.
 For Quotations, set document_type to "quotation", put Quotation reference/number into tax_invoice and date in invoice_date.
 For Delivery Orders, set document_type to "delivery_order" and put the visible Delivery Order No in tax_invoice and invoice_date.
 For Tax Invoices, set document_type to "invoice" and put the visible Tax Invoice number in tax_invoice and invoice_date.
+If the invoice is for servicing machines/vehicles, maintenance, labour charges, or repairs (e.g. 'Servicing one unit Heli forklift at HPJ'), set order_type to "service_order", extract the summary sentence into service_description, and put the invoice number into tax_invoice.
 Extract supplier company name from header letterhead into supplier_name.
 Extract full supplier address into supplier_address.
 Extract supplier telephone/fax/mobile into supplier_phone.
@@ -355,6 +364,7 @@ First classify the image:
 - If the image title/header says Quotation, Quote, RE: QUOTATION, or Best Price, return document_type "quotation".
 - If the image title/label says Delivery Order, Delivery Order No, D.O, return document_type "delivery_order".
 - If the image title/label says Tax Invoice, Invoice No, Cash Bill, Receipt, or has price/amount/tax invoice fields, return document_type "invoice".
+- If the document contains servicing, labour charges, or maintenance work (e.g. 'Servicing one unit Heli forklift'), set order_type to "service_order" and extract the service title into service_description.
 
 Important extraction rules:
 - Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
@@ -1567,6 +1577,21 @@ def po_month_mmyy(value: Any) -> str:
     return parsed.strftime("%m%y")
 
 
+def is_service_order(data: dict[str, Any]) -> bool:
+    if str(data.get("order_type") or "").strip().lower() in ("service_order", "so"):
+        return True
+    if str(data.get("document_type") or "").strip().lower() in ("service_order", "so"):
+        return True
+    desc_header = str(data.get("service_description") or data.get("service_header") or "").lower()
+    if any(k in desc_header for k in ("service", "servicing", "maintenance", "repair", "labour", "forklift", "overhaul")):
+        return True
+    for item in line_items_from_data(data):
+        desc = str(item.get("description") or "").lower()
+        if any(k in desc for k in ("servicing", "labour charges", "maintenance work", "repair work", "overhaul", "transmission filter")):
+            return True
+    return False
+
+
 def ensure_po_output_stem(data: dict[str, Any], received_at: datetime | None = None) -> str:
     existing = data.get("po_output_stem")
     if existing:
@@ -1592,6 +1617,22 @@ def ensure_po_output_stem(data: dict[str, Any], received_at: datetime | None = N
 
     submitter_name = data.get("submitter_name") or data.get("requested_by") or ""
     initials = get_user_initials(submitter_name)
+
+    if is_service_order(data):
+        mmyy = po_month_mmyy(doc_date)
+        running_key = f"SO_TECH_{mmyy}"
+        running_number = next_po_running_number(running_key, running_key, record_type)
+        so_category = "TUJU" if "tuju" in str(supplier_display_name).lower() else category
+        stem = f"{test_prefix}BFE SO TECH {mmyy} {running_number:03d} {supplier_display_name}"
+        so_number = f"BFE/SO/{so_category}/{initials}/{mmyy}/{running_number:03d}"
+        data["so_number"] = so_number
+        data["pr_number"] = so_number
+        data["po_month_key"] = running_key
+        data["po_month_name"] = mmyy
+        data["po_running_number"] = f"{running_number:03d}"
+        data["po_output_stem"] = stem
+        data["record_type"] = record_type
+        return stem
 
     if category == "TECH":
         mmyy = po_month_mmyy(doc_date)
@@ -3171,10 +3212,11 @@ def get_update_message(update: Update):
     return None
 
 
-def review_action_keyboard(is_test: bool = False) -> InlineKeyboardMarkup:
+def review_action_keyboard(is_test: bool = False, is_so: bool = False) -> InlineKeyboardMarkup:
+    save_label = "💾 Save & Generate SO" if is_so else "💾 Save & Generate PO"
     keyboard = [
         [
-            InlineKeyboardButton("💾 Save & Generate PO", callback_data="btn_save"),
+            InlineKeyboardButton(save_label, callback_data="btn_save"),
         ],
         [
             InlineKeyboardButton("📋 Review Items", callback_data="btn_review"),
@@ -3182,7 +3224,8 @@ def review_action_keyboard(is_test: bool = False) -> InlineKeyboardMarkup:
         ],
     ]
     if is_test:
-        keyboard.insert(1, [InlineKeyboardButton("📁 Save Official Record", callback_data="btn_saverecord")])
+        rec_label = "📁 Save Official SO Record" if is_so else "📁 Save Official Record"
+        keyboard.insert(1, [InlineKeyboardButton(rec_label, callback_data="btn_saverecord")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -3645,6 +3688,107 @@ def save_material_requisition_workbook(
     return len(line_items)
 
 
+def configured_service_order_template_path() -> Path | None:
+    custom_path = os.getenv("SERVICE_ORDER_TEMPLATE_PATH")
+    if custom_path:
+        return Path(custom_path)
+    for candidate in (
+        DEFAULT_SERVICE_ORDER_TEMPLATE_PATH,
+        BASE_DIR / "templates" / "service_order_template.xlsx",
+        BASE_DIR / "data" / "templates" / "service_order_template.xlsx",
+    ):
+        if candidate.exists():
+            return candidate
+    return DEFAULT_SERVICE_ORDER_TEMPLATE_PATH
+
+
+def clear_service_order_items(worksheet: Any) -> None:
+    for row in range(SO_FIRST_ITEM_ROW, SO_LAST_ITEM_ROW + 1):
+        for col in ("A", "B", "F", "G", "H", "I"):
+            worksheet[f"{col}{row}"] = None
+
+
+def save_service_order_workbook(
+    target_path: Path,
+    template_path: Path,
+    data: dict[str, Any],
+) -> int:
+    line_items = line_items_from_data(data)
+    if len(line_items) > SO_LAST_ITEM_ROW - SO_FIRST_ITEM_ROW + 1:
+        raise RuntimeError(
+            f"Service Order template only has space for {SO_LAST_ITEM_ROW - SO_FIRST_ITEM_ROW + 1} item rows, "
+            f"but extraction has {len(line_items)} rows."
+        )
+
+    assert_workbook_writable(target_path)
+    workbook = load_workbook(template_path)
+    if SO_SHEET_NAME not in workbook.sheetnames:
+        raise RuntimeError(f"Service Order template sheet {SO_SHEET_NAME!r} was not found.")
+
+    worksheet = workbook[SO_SHEET_NAME]
+    clear_service_order_items(worksheet)
+
+    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or ""
+    invoice_date = data.get("invoice_date")
+    po_date = data.get("po_document_date") or purchase_order_date_from_invoice(invoice_date)
+    data["po_document_date"] = po_date
+
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
+    )
+    if supplier_profile:
+        worksheet["A15"] = supplier_profile.get("display_name") or "SUPPLIER"
+        worksheet["A16"] = supplier_profile.get("address_line1") or ""
+        worksheet["A17"] = supplier_profile.get("address_line2") or ""
+        worksheet["A18"] = supplier_profile.get("tel_fax") or ""
+        if supplier_profile.get("vendor_contact_person"):
+            worksheet["B20"] = supplier_profile["vendor_contact_person"]
+        if supplier_profile.get("vendor_contact_tel"):
+            worksheet["A21"] = supplier_profile["vendor_contact_tel"]
+
+    # SO Number, Date & Invoice Reference
+    so_number = data.get("so_number") or data.get("pr_number") or target_path.stem
+    worksheet["I15"] = so_number
+    worksheet["I16"] = template_display_date(po_date)
+    worksheet["I17"] = tax_invoice or ""
+    worksheet["I18"] = "=I17"
+
+    # Service Order for Header (Cell B27)
+    service_desc = data.get("service_description") or data.get("service_header") or "Services one unit Heli forklift at HPJ"
+    worksheet["B27"] = service_desc
+
+    # Line Items (A28:H49)
+    for offset, item in enumerate(line_items):
+        row = SO_FIRST_ITEM_ROW + offset
+        worksheet[f"A{row}"] = item.get("item_no") or offset + 1
+        desc = str(item.get("description") or "").strip()
+        desc_cell = worksheet[f"B{row}"]
+        desc_cell.value = desc
+        desc_cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
+        worksheet[f"F{row}"] = format_quantity_with_unit(item)
+        worksheet[f"G{row}"] = normalize_number(item.get("unit_price"))
+        worksheet[f"H{row}"] = normalize_number(item.get("line_total"))
+        if item.get("warranty"):
+            worksheet[f"I{row}"] = item.get("warranty")
+        if desc:
+            lines = max(1, math.ceil(len(desc) / 38))
+            if lines > 1:
+                worksheet.row_dimensions[row].height = max(24.0, lines * 16.0)
+
+    worksheet["H51"] = "=SUM(H27:H50)"
+
+    contact = delivery_order_requested_by(data) or (supplier_profile.get("default_contact") if supplier_profile else "") or "Zarin 019-9396812"
+    worksheet["G55"] = f"Person to contact : {contact}"
+
+    submitter = data.get("submitter_name") or data.get("requested_by") or "Azyan Nasuha"
+    worksheet["G62"] = f"Prepare by : {submitter}"
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    workbook.save(target_path)
+    workbook.close()
+    return len(line_items)
+
+
 def powershell_single_quote(value: Path) -> str:
     return str(value).replace("'", "''")
 
@@ -3784,6 +3928,8 @@ def create_material_requisition_outputs(
     po_workbook_path: Path,
     data: dict[str, Any],
 ) -> tuple[Path | None, Path | None, str | None]:
+    if is_service_order(data):
+        return None, None, None
     template_path = configured_material_requisition_template_path()
     if not template_path:
         return None, None, "Material Requisition template is not configured."
@@ -4109,6 +4255,11 @@ def append_to_workbook(
     duplicate_mode: str = "check",
 ) -> int:
     del received_at, image_path
+    if is_service_order(data):
+        so_template = configured_service_order_template_path()
+        if so_template and so_template.exists():
+            return save_service_order_workbook(path, so_template, data)
+
     template_path = configured_invoice_template_path()
     if template_path:
         if not template_path.exists():
@@ -4525,8 +4676,10 @@ async def process_invoice_image(
     supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
         data, configured_default_supplier(), configured_supplier_aliases()
     )
+    is_so = is_service_order(data)
     is_standalone = (
-        document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL)
+        is_so
+        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER)
         or supplier_profile.get("category") == "TECH"
         or "walihin" in str(supplier_profile.get("display_name", "")).lower()
     )
@@ -4567,24 +4720,25 @@ async def process_invoice_image(
     line_item_count = len(line_items_from_data(data))
 
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
-    doc_label = "Quotation" if is_standalone else "D.O + Invoice Pair"
+    doc_label = "Service Order" if is_so else ("Quotation" if is_standalone else "D.O + Invoice Pair")
     date_str = data.get("invoice_date") or "Date unknown"
     contact_str = data.get("contact_person") or "Contact unknown"
+    btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
     summary_text = (
         f"📋 *{doc_label} Ready for Review*\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"• *Supplier:* {supplier_title}\n"
         f"• *Reference No:* `{tax_invoice}`\n"
-        f"• *PO Date:* {date_str}\n"
+        f"• *Date:* {date_str}\n"
         f"• *Attention:* {contact_str}\n"
         f"• *Total Items:* {line_item_count}\n\n"
         f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
-        f"Please review the items above and tap *Save & Generate PO* below to proceed."
+        f"Please review the items above and tap *{btn_label_hint}* below to proceed."
     )
 
     is_test = data.get("record_type") == "test"
-    keyboard = review_action_keyboard(is_test=is_test)
+    keyboard = review_action_keyboard(is_test=is_test, is_so=is_so)
 
     warnings_text = format_review_warnings(data)
     if warnings_text and "No critical issues" not in warnings_text:
@@ -4605,7 +4759,7 @@ async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending:
-        await safe_reply_text(update, "ℹ️ No document is currently waiting for review. Send a D.O or Quotation photo first.", "empty review notice")
+        await safe_reply_text(update, "ℹ️ No document is currently waiting for review. Send a D.O, Invoice, or Quotation photo first.", "empty review notice")
         return
 
     data = pending_review_data(pending)
@@ -4621,32 +4775,35 @@ async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         data, configured_default_supplier(), configured_supplier_aliases()
     )
     document_type = normalize_document_type(data)
+    is_so = is_service_order(data)
     is_standalone = (
-        document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL)
+        is_so
+        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER)
         or supplier_profile.get("category") == "TECH"
         or "walihin" in str(supplier_profile.get("display_name", "")).lower()
     )
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
-    doc_label = "Quotation" if is_standalone else "D.O + Invoice Pair"
+    doc_label = "Service Order" if is_so else ("Quotation" if is_standalone else "D.O + Invoice Pair")
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     date_str = data.get("invoice_date") or "Date unknown"
     contact_str = data.get("contact_person") or "Contact unknown"
     line_item_count = len(line_items_from_data(data))
+    btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
     summary_text = (
         f"📋 *{doc_label} Review*\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"• *Supplier:* {supplier_title}\n"
         f"• *Reference No:* `{tax_invoice}`\n"
-        f"• *PO Date:* {date_str}\n"
+        f"• *Date:* {date_str}\n"
         f"• *Attention:* {contact_str}\n"
         f"• *Total Items:* {line_item_count}\n\n"
         f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
-        f"Tap *Save & Generate PO* below to confirm."
+        f"Tap *{btn_label_hint}* below to confirm."
     )
 
     is_test = data.get("record_type") == "test"
-    keyboard = review_action_keyboard(is_test=is_test)
+    keyboard = review_action_keyboard(is_test=is_test, is_so=is_so)
 
     warnings_text = format_review_warnings(data)
     if warnings_text and "No critical issues" not in warnings_text:
@@ -4823,13 +4980,17 @@ async def save_pending_with_mode(
     line_item_count = len(line_items_from_data(data))
 
     logging.info("Saved reviewed invoice %s to %s; sending confirmation", invoice_id, target_path)
+    is_so = is_service_order(data)
+    doc_success_title = "Service Order" if is_so else "Purchase Order & MR"
+    file_label = "SO File" if is_so else "PO File"
+
     await safe_reply_text(
         update,
         (
-            f"✅ *Purchase Order & MR Generated!*\n"
+            f"✅ *{doc_success_title} Generated!*\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"• *Document No:* `{tax_invoice}`\n"
-            f"• *PO File:* `{target_path.name}`\n"
+            f"• *{file_label}:* `{target_path.name}`\n"
             f"• *Line Items Saved:* {saved_count}\n\n"
             f"📦 *Your files are ready below:*"
         ),
