@@ -3589,6 +3589,18 @@ def clear_material_requisition_items(worksheet: Any) -> None:
             worksheet[f"{col}{row}"] = None
 
 
+def calculate_item_row_height(desc: str, col_wrap_chars: int = 36) -> float:
+    if not desc:
+        return 22.0
+    explicit_lines = str(desc).strip().splitlines()
+    if not explicit_lines:
+        return 22.0
+    total_rendered_lines = sum(max(1, math.ceil(len(line.strip()) / col_wrap_chars)) for line in explicit_lines)
+    if total_rendered_lines <= 1:
+        return 22.0
+    return max(24.0, (total_rendered_lines * 17.5) + 8.0)
+
+
 def save_template_workbook(
     target_path: Path,
     template_path: Path,
@@ -3642,14 +3654,18 @@ def save_template_workbook(
         desc = str(item.get("description") or "").strip()
         desc_cell = worksheet[f"C{row}"]
         desc_cell.value = desc
-        desc_cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
+        desc_cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+
+        # Top-align all columns for neat visual presentation
+        worksheet[f"B{row}"].alignment = Alignment(vertical="top", horizontal="center")
         worksheet[f"G{row}"] = format_quantity_with_unit(item)
+        worksheet[f"G{row}"].alignment = Alignment(vertical="top", horizontal="center")
         worksheet[f"H{row}"] = normalize_number(item.get("unit_price"))
+        worksheet[f"H{row}"].alignment = Alignment(vertical="top", horizontal="right")
         worksheet[f"J{row}"] = normalize_number(item.get("line_total"))
-        if desc:
-            lines = max(1, math.ceil(len(desc) / 38))
-            if lines > 1:
-                worksheet.row_dimensions[row].height = max(24.0, lines * 16.0)
+        worksheet[f"J{row}"].alignment = Alignment(vertical="top", horizontal="right")
+
+        worksheet.row_dimensions[row].height = calculate_item_row_height(desc, col_wrap_chars=36)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(target_path)
@@ -3712,18 +3728,21 @@ def save_material_requisition_workbook(
         desc = str(item.get("description") or "").strip()
         desc_cell = worksheet[f"C{row}"]
         desc_cell.value = desc
-        desc_cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
+        desc_cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+
+        worksheet[f"B{row}"].alignment = Alignment(vertical="top", horizontal="center")
         worksheet[f"K{row}"] = format_quantity_with_unit(item) or ""
+        worksheet[f"K{row}"].alignment = Alignment(vertical="top", horizontal="center")
         unit_price = normalize_number(item.get("unit_price"))
         if unit_price is not None:
             worksheet[f"L{row}"] = unit_price
+            worksheet[f"L{row}"].alignment = Alignment(vertical="top", horizontal="right")
         line_total = normalize_number(item.get("line_total"))
         if line_total is not None:
             worksheet[f"N{row}"] = line_total
-        if desc:
-            lines = max(1, math.ceil(len(desc) / 38))
-            if lines > 1:
-                worksheet.row_dimensions[row].height = max(24.0, lines * 16.0)
+            worksheet[f"N{row}"].alignment = Alignment(vertical="top", horizontal="right")
+
+        worksheet.row_dimensions[row].height = calculate_item_row_height(desc, col_wrap_chars=36)
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(target_path)
@@ -3807,16 +3826,20 @@ def save_service_order_workbook(
         desc = str(item.get("description") or "").strip()
         desc_cell = worksheet[f"B{row}"]
         desc_cell.value = desc
-        desc_cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left")
+        desc_cell.alignment = Alignment(wrap_text=True, vertical="top", horizontal="left")
+
+        worksheet[f"A{row}"].alignment = Alignment(vertical="top", horizontal="center")
         worksheet[f"F{row}"] = format_quantity_with_unit(item)
+        worksheet[f"F{row}"].alignment = Alignment(vertical="top", horizontal="center")
         worksheet[f"G{row}"] = normalize_number(item.get("unit_price"))
+        worksheet[f"G{row}"].alignment = Alignment(vertical="top", horizontal="right")
         worksheet[f"H{row}"] = normalize_number(item.get("line_total"))
+        worksheet[f"H{row}"].alignment = Alignment(vertical="top", horizontal="right")
         if item.get("warranty"):
             worksheet[f"I{row}"] = item.get("warranty")
-        if desc:
-            lines = max(1, math.ceil(len(desc) / 38))
-            if lines > 1:
-                worksheet.row_dimensions[row].height = max(24.0, lines * 16.0)
+            worksheet[f"I{row}"].alignment = Alignment(vertical="top", horizontal="center")
+
+        worksheet.row_dimensions[row].height = calculate_item_row_height(desc, col_wrap_chars=36)
 
     worksheet["H51"] = "=SUM(H27:H50)"
 
