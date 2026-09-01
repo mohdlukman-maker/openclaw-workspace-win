@@ -4470,6 +4470,16 @@ async def process_invoice_image(
     if not paired_data and not is_standalone:
         missing = pending_missing_document_types(pending)
         next_needed = document_type_label(missing[0]) if missing else "other document"
+        is_album = bool(update.message and update.message.media_group_id)
+
+        if is_album:
+            await safe_reply_text(
+                update,
+                f"📄 {document_type_label(document_type)} ({tax_invoice}) processed. Combining with matching album document...",
+                "album document acknowledgement",
+            )
+            return
+
         await safe_reply_text(
             update,
             (
@@ -4886,23 +4896,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await telegram_file.download_to_drive(custom_path=image_path)
     source_image_hash = file_sha256(image_path)
 
-    # ── OpenCV preprocessing pipeline ───────────────────────────
-    try:
-        enhanced_dir = ENHANCED_OUTPUTS_DIR / invoice_id
-        preprocess_result = await asyncio.to_thread(
-            image_processor.preprocess_invoice, image_path, enhanced_dir,
-        )
-        # Use the preprocessed OCR-optimised image downstream
-        image_path = preprocess_result["preprocessed_ocr"]
-        logging.info(
-            "OpenCV preprocessing applied for %s. Versions saved: %s",
-            invoice_id, list(preprocess_result.keys()),
-        )
-    except Exception:
-        logging.exception(
-            "OpenCV preprocessing failed for %s; falling back to raw image",
-            invoice_id,
-        )
+    # ── OpenCV preprocessing pipeline (only needed for legacy local OCR) ──
+    if not ai_primary_enabled():
+        try:
+            enhanced_dir = ENHANCED_OUTPUTS_DIR / invoice_id
+            preprocess_result = await asyncio.to_thread(
+                image_processor.preprocess_invoice, image_path, enhanced_dir,
+            )
+            image_path = preprocess_result["preprocessed_ocr"]
+            logging.info("OpenCV preprocessing applied for %s.", invoice_id)
+        except Exception:
+            logging.exception(
+                "OpenCV preprocessing failed for %s; falling back to raw image",
+                invoice_id,
+            )
 
     await process_invoice_image(update, context, image_path, invoice_id, received_at, source_image_hash)
 
@@ -4968,22 +4975,20 @@ async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TY
     await telegram_file.download_to_drive(custom_path=image_path)
     source_image_hash = file_sha256(image_path)
 
-    # ── OpenCV preprocessing pipeline ───────────────────────────
-    try:
-        enhanced_dir = ENHANCED_OUTPUTS_DIR / invoice_id
-        preprocess_result = await asyncio.to_thread(
-            image_processor.preprocess_invoice, image_path, enhanced_dir,
-        )
-        image_path = preprocess_result["preprocessed_ocr"]
-        logging.info(
-            "OpenCV preprocessing applied for %s. Versions saved: %s",
-            invoice_id, list(preprocess_result.keys()),
-        )
-    except Exception:
-        logging.exception(
-            "OpenCV preprocessing failed for %s; falling back to raw image",
-            invoice_id,
-        )
+    # ── OpenCV preprocessing pipeline (only needed for legacy local OCR) ──
+    if not ai_primary_enabled():
+        try:
+            enhanced_dir = ENHANCED_OUTPUTS_DIR / invoice_id
+            preprocess_result = await asyncio.to_thread(
+                image_processor.preprocess_invoice, image_path, enhanced_dir,
+            )
+            image_path = preprocess_result["preprocessed_ocr"]
+            logging.info("OpenCV preprocessing applied for %s.", invoice_id)
+        except Exception:
+            logging.exception(
+                "OpenCV preprocessing failed for %s; falling back to raw image",
+                invoice_id,
+            )
 
     await process_invoice_image(update, context, image_path, invoice_id, received_at, source_image_hash)
 
