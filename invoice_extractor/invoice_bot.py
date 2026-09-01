@@ -3096,6 +3096,24 @@ async def extract_invoice_openai(
     return json.loads(content_str)
 
 
+def extract_contact_person_from_image(image_path: Path) -> str | None:
+    try:
+        crops = create_tuju_focused_crops(image_path)
+        contact_crop = crops.get("contact")
+        if contact_crop and contact_crop.exists():
+            contact_text, _ = ocr_text_and_confidence(contact_crop)
+            parsed = parse_ocr_contact_person(contact_text)
+            if parsed and "azyan" not in parsed.lower():
+                return parsed
+        full_text, _ = ocr_text_and_confidence(image_path)
+        parsed = parse_ocr_contact_person(full_text)
+        if parsed and "azyan" not in parsed.lower():
+            return parsed
+    except Exception:
+        pass
+    return None
+
+
 async def extract_invoice(image_path: Path, model: str | None = None, primary: bool = False) -> dict[str, Any]:
     provider = configured_ai_provider()
     image_paths, image_note = ai_primary_image_paths(image_path) if primary else focused_ai_image_paths(image_path)
@@ -3125,6 +3143,13 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
     data.setdefault("line_items", [])
     repair_line_item_arithmetic(data)
     validate_ai_extraction(data)
+    if not data.get("contact_person") or "azyan" in str(data.get("contact_person", "")).lower():
+        try:
+            local_contact = extract_contact_person_from_image(image_path)
+            if local_contact:
+                data["contact_person"] = local_contact
+        except Exception:
+            pass
     if "TUJU focused" in image_note:
         data["extraction_profile"] = "tuju_focused"
     return data
@@ -3238,6 +3263,14 @@ def load_cached_extraction(source_image_hash: str | None) -> dict[str, Any] | No
     if do_num:
         data["delivery_order"] = do_num
         data["delivery_order_no"] = do_num
+
+    if not data.get("contact_person") or "azyan" in str(data.get("contact_person", "")).lower():
+        notes = str(data.get("notes") or "")
+        anuar_m = re.search(r"(?i)\b(anu[ao]r\s*(?:[0-9+ -]{7,15})?)\b", notes)
+        if anuar_m:
+            data["contact_person"] = anuar_m.group(1).strip(" :-,")
+        else:
+            data["contact_person"] = None
     return data
 
 
