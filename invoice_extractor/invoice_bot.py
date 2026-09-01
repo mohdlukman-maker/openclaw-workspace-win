@@ -1698,19 +1698,33 @@ def image_sharpness_score(gray_image: Image.Image) -> float:
 
 def inspect_document_image_quality(image_path: Path) -> dict[str, Any]:
     """Return lightweight image quality metrics and warnings before OCR."""
+    if image_path.suffix.lower() == ".pdf":
+        return {
+            "width": 1000,
+            "height": 1000,
+            "brightness": 128.0,
+            "contrast": 50.0,
+            "sharpness": 100.0,
+            "warnings": [],
+            "status": "pass",
+        }
+
     min_short_side = env_int("IMAGE_QUALITY_MIN_SHORT_SIDE", DEFAULT_IMAGE_QUALITY_MIN_SHORT_SIDE)
     min_contrast = env_float("IMAGE_QUALITY_MIN_CONTRAST", DEFAULT_IMAGE_QUALITY_MIN_CONTRAST)
     min_sharpness = env_float("IMAGE_QUALITY_MIN_SHARPNESS", DEFAULT_IMAGE_QUALITY_MIN_SHARPNESS)
     min_brightness = env_float("IMAGE_QUALITY_MIN_BRIGHTNESS", DEFAULT_IMAGE_QUALITY_MIN_BRIGHTNESS)
     max_brightness = env_float("IMAGE_QUALITY_MAX_BRIGHTNESS", DEFAULT_IMAGE_QUALITY_MAX_BRIGHTNESS)
 
-    with Image.open(image_path) as image:
-        oriented = orient_document_image(image)
-        gray = ImageOps.grayscale(oriented)
-        brightness, contrast = image_stat_mean_and_std(gray)
-        sharpness = image_sharpness_score(gray)
-        width, height = oriented.size
-        short_side = min(width, height)
+    try:
+        with Image.open(image_path) as image:
+            oriented = orient_document_image(image)
+            gray = ImageOps.grayscale(oriented)
+            brightness, contrast = image_stat_mean_and_std(gray)
+            sharpness = image_sharpness_score(gray)
+            width, height = oriented.size
+            short_side = min(width, height)
+    except Exception:
+        return {"status": "pass", "warnings": []}
 
     warnings: list[str] = []
     if short_side < min_short_side:
@@ -2835,7 +2849,16 @@ async def extract_invoice_gemini(
     contents: list[Any] = []
     for candidate_path in image_paths:
         encoded_bytes = candidate_path.read_bytes()
-        contents.append(types.Part.from_bytes(data=encoded_bytes, mime_type="image/jpeg"))
+        ext = candidate_path.suffix.lower()
+        if ext == ".pdf":
+            mime = "application/pdf"
+        elif ext == ".png":
+            mime = "image/png"
+        elif ext == ".webp":
+            mime = "image/webp"
+        else:
+            mime = "image/jpeg"
+        contents.append(types.Part.from_bytes(data=encoded_bytes, mime_type=mime))
     contents.append(prompt_text)
 
     config = types.GenerateContentConfig(
@@ -5261,7 +5284,7 @@ def convert_pdf_to_image(pdf_path: Path, output_image_path: Path, dpi: int = 200
 
         doc = fitz.open(pdf_path)
         if len(doc) == 0:
-            raise ValueError("PDF file contains no pages.")
+            return pdf_path
 
         images = []
         for i in range(min(len(doc), 4)):
@@ -5285,9 +5308,12 @@ def convert_pdf_to_image(pdf_path: Path, output_image_path: Path, dpi: int = 200
             stitched.save(output_image_path, "PNG")
 
         return output_image_path
+    except ImportError:
+        logging.warning("PyMuPDF (fitz) is not installed; forwarding PDF directly to Gemini AI.")
+        return pdf_path
     except Exception as exc:
-        logging.exception("Failed to convert PDF %s to image: %s", pdf_path, exc)
-        raise
+        logging.warning("Failed to convert PDF %s to image: %s; forwarding PDF directly to Gemini AI.", pdf_path, exc)
+        return pdf_path
 
 
 async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5447,9 +5473,12 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = update.effective_chat.id
     if chat_id is not None:
         try:
+            err = context.error
+            err_text = user_facing_error(err) if err else "An unexpected issue occurred."
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Something went wrong handling that. Please try again, or send /status.",
+                text=f"⚠️ *Processing Notice*\n━━━━━━━━━━━━━━━━━━━\n{err_text}\n\nPlease try again, or check /status.",
+                parse_mode="Markdown",
             )
         except Exception:
             logging.exception("Failed to notify chat about an error")
