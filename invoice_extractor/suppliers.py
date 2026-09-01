@@ -16,6 +16,14 @@ DEFAULT_SUPPLIER_ALIASES = {
         "walihin",
         "petroleum",
     ],
+    "MENG SOON HUAT": [
+        "meng soon huat",
+        "meng soon",
+        "msh",
+        "mshesb",
+        "i26-",
+        "d26-",
+    ],
 }
 
 KNOWN_SUPPLIER_PROFILES = {
@@ -42,6 +50,17 @@ KNOWN_SUPPLIER_PROFILES = {
         "vendor_contact_person": "Aw Kim Yeong",
         "vendor_contact_tel": "TEL : 012-217 9508",
         "aliases": ["tuju galaxy", "tuju galaksi", "tuju", "tg-"],
+    },
+    "MENG SOON HUAT": {
+        "category": "PO",
+        "display_name": "MENG SOON HUAT ELECTRICAL SDN BHD",
+        "address_line1": "LOT 161, GROUND FLOOR, LORONG DATUK ABANG ABDUL RAHIM 5",
+        "address_line2": "93450 KUCHING, SARAWAK.",
+        "tel_fax": "TEL : 016-864 1899 & 016-889 8918",
+        "email": "Email : mshesb@gmail.com",
+        "bank_account": "",
+        "default_contact": "Lukman 018-9414868",
+        "aliases": ["meng soon huat", "meng soon", "msh", "mshesb", "i26-", "d26-"],
     },
 }
 

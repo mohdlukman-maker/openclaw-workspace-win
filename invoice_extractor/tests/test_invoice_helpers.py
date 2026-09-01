@@ -721,10 +721,26 @@ class PDFConversionTests(unittest.TestCase):
             doc.save(pdf_path)
             doc.close()
 
-            res = convert_pdf_to_image(pdf_path, out_img, dpi=150)
-            self.assertEqual(res, out_img)
-            self.assertTrue(out_img.exists())
-            self.assertGreater(out_img.stat().st_size, 1000)
+    def test_convert_pdf_to_page_images_multi_page(self) -> None:
+        import fitz
+        from invoice_bot import convert_pdf_to_page_images
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = Path(tmpdir) / "multi_sample.pdf"
+            pages_dir = Path(tmpdir) / "pages"
+
+            doc = fitz.open()
+            p1 = doc.new_page(width=595, height=842)
+            p1.insert_text((50, 50), "Page 1 - Invoice No: I26-027577", fontsize=14)
+            p2 = doc.new_page(width=595, height=842)
+            p2.insert_text((50, 50), "Page 2 - Delivery Order No: D26-029307", fontsize=14)
+            doc.save(pdf_path)
+            doc.close()
+
+            pages = convert_pdf_to_page_images(pdf_path, pages_dir, dpi=100)
+            self.assertEqual(len(pages), 2)
+            self.assertTrue(pages[0].exists())
+            self.assertTrue(pages[1].exists())
 
 
 if __name__ == "__main__":

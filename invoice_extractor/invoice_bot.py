@@ -5278,6 +5278,31 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await process_invoice_image(update, context, image_path, invoice_id, received_at, source_image_hash)
 
 
+def convert_pdf_to_page_images(pdf_path: Path, output_dir: Path, dpi: int = 150) -> list[Path]:
+    try:
+        import fitz
+        output_dir.mkdir(parents=True, exist_ok=True)
+        doc = fitz.open(pdf_path)
+        if len(doc) == 0:
+            return [pdf_path]
+
+        page_paths: list[Path] = []
+        for i in range(min(len(doc), 6)):
+            page = doc[i]
+            pix = page.get_pixmap(dpi=dpi)
+            page_path = output_dir / f"page_{i+1}.png"
+            pix.save(page_path)
+            page_paths.append(page_path)
+        doc.close()
+        return page_paths if page_paths else [pdf_path]
+    except ImportError:
+        logging.warning("PyMuPDF (fitz) is not installed; forwarding PDF directly.")
+        return [pdf_path]
+    except Exception as exc:
+        logging.warning("Failed to render PDF pages: %s", exc)
+        return [pdf_path]
+
+
 def convert_pdf_to_image(pdf_path: Path, output_image_path: Path, dpi: int = 200) -> Path:
     try:
         import fitz
@@ -5316,6 +5341,80 @@ def convert_pdf_to_image(pdf_path: Path, output_image_path: Path, dpi: int = 200
     except Exception as exc:
         logging.warning("Failed to convert PDF %s to image: %s; forwarding PDF directly to Gemini AI.", pdf_path, exc)
         return pdf_path
+
+
+async def process_multi_page_pdf(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    page_images: list[Path],
+    invoice_id: str,
+    received_at: datetime,
+    source_image_hash: str | None = None,
+) -> None:
+    if not update.message:
+        return
+
+    user_name = update.effective_user.first_name if update.effective_user else "there"
+    chat_id = str(update.effective_chat.id) if update.effective_chat else ""
+    await safe_reply_text(
+        update,
+        f"Hi {user_name}, multi-page document ({len(page_images)} pages) received. Analyzing pages...",
+        "multi-page document acknowledgement",
+    )
+
+    model = ai_model_name()
+    extracted_pages: list[dict[str, Any]] = []
+
+    for i, page_img in enumerate(page_images, start=1):
+        try:
+            page_data, _, _ = await extract_invoice_hybrid(page_img, model)
+            extracted_pages.append(page_data)
+        except Exception as exc:
+            logging.exception("Failed to extract page %s of %s: %s", i, invoice_id, exc)
+
+    if not extracted_pages:
+        await safe_reply_text(update, "⚠️ Could not extract data from the PDF pages. Please try again.", "empty extraction notice")
+        return
+
+    doc_types = [normalize_document_type(d) for d in extracted_pages]
+    has_do = DOCUMENT_TYPE_DELIVERY_ORDER in doc_types
+    has_inv = DOCUMENT_TYPE_INVOICE in doc_types
+
+    # Case 1: PDF contains both D.O and Invoice (e.g. Page 1 = Invoice, Page 2 = D.O)
+    if has_do and has_inv:
+        for idx, (p_data, p_img) in enumerate(zip(extracted_pages, page_images), start=1):
+            save_pending_review(
+                context=context,
+                data=p_data,
+                invoice_id=f"{invoice_id}_p{idx}",
+                received_at=received_at,
+                image_path=p_img,
+                submitter_chat_id=chat_id,
+                submitter_name=user_name,
+            )
+        await review_pending(update, context)
+        return
+
+    # Case 2: Multi-page single document (e.g. 2-page Invoice or Service Order)
+    first_data = dict(extracted_pages[0])
+    combined_items: list[dict[str, Any]] = []
+    for p_data in extracted_pages:
+        items = p_data.get("line_items") or []
+        combined_items.extend(items)
+
+    first_data["line_items"] = combined_items
+    repair_line_item_arithmetic(first_data)
+
+    save_pending_review(
+        context=context,
+        data=first_data,
+        invoice_id=invoice_id,
+        received_at=received_at,
+        image_path=page_images[0],
+        submitter_chat_id=chat_id,
+        submitter_name=user_name,
+    )
+    await review_pending(update, context)
 
 
 async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5402,8 +5501,15 @@ async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TY
         telegram_file = await context.bot.get_file(update.message.document.file_id)
         await telegram_file.download_to_drive(custom_path=pdf_path)
         source_image_hash = file_sha256(pdf_path)
-        image_path = await asyncio.to_thread(convert_pdf_to_image, pdf_path, IMAGE_DIR / f"{invoice_id}.png")
-        if not image_path.exists():
+        pages_dir = IMAGE_DIR / f"{invoice_id}_pages"
+        page_images = await asyncio.to_thread(convert_pdf_to_page_images, pdf_path, pages_dir)
+
+        if len(page_images) > 1:
+            await process_multi_page_pdf(update, context, page_images, invoice_id, received_at, source_image_hash)
+            return
+        elif len(page_images) == 1:
+            image_path = page_images[0]
+        else:
             image_path = pdf_path
     else:
         suffix = file_ext or ".jpg"
