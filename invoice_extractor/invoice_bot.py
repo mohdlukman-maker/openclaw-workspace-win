@@ -934,12 +934,12 @@ def resolve_document_numbers(data: dict[str, Any], raw_text: str | None = None) 
     combined_text = " ".join([str(raw_text or ""), str(data.get("notes") or "")])
     if combined_text.strip():
         if not tax_inv:
-            inv_pattern = r"(?i)\b(?:tax\s*invoice|invoice|inv)\s*(?:no\.?|number|#)?\s*[:\s]*([I1]2\d-\d{4,}|[A-Z0-9/-]{5,})"
+            inv_pattern = r"(?i)\b(?:tax\s*invoice|invoice|inv)\b\s*(?:no\.?|number|#)?\s*[:\s]*([I1]2\d-\d{4,}|[A-Z0-9/-]{5,})"
             m = re.search(inv_pattern, combined_text)
             if m and is_plausible_document_number(m.group(1)):
                 tax_inv = m.group(1)
         if not do_num:
-            do_pattern = r"(?i)\b(?:delivery\s*order|d\.?o\.?|our\s*d/?o\s*no\.?|your\s*ref\.?)\s*(?:no\.?|number|#)?\s*[:\s]*([DO0]2\d-\d{4,}|[A-Z0-9/-]{5,})"
+            do_pattern = r"(?i)\b(?:delivery\s*order|d/o|d\.o\.|do|our\s*d/?o|your\s*ref)\b\s*(?:no\.?|number|#)?\s*[:\s]*([DO0]2\d-\d{4,}|[A-Z0-9/-]{5,})"
             m = re.search(do_pattern, combined_text)
             if m and is_plausible_document_number(m.group(1)):
                 do_num = m.group(1)
@@ -956,7 +956,10 @@ def is_plausible_document_number(value: str | None) -> bool:
     if len(text) < 3:
         return False
     lowered = text.lower()
-    if lowered in {"tel", "fax", "email", "phone", "date", "total", "page", "invoice", "delivery order", "attn", "contact"}:
+    if lowered in {
+        "tel", "fax", "email", "phone", "date", "total", "page", "invoice", "delivery order",
+        "attn", "contact", "document", "cument", "number", "unknown", "none", "null"
+    }:
         return False
     digits = re.sub(r"\D", "", text)
     if (len(digits) in (9, 10, 11) or (len(digits) == 12 and digits.startswith("60"))) and not re.search(r"[a-zA-Z]", text):
@@ -3190,6 +3193,23 @@ def load_cached_extraction(source_image_hash: str | None) -> dict[str, Any] | No
         return None
     if not isinstance(data.get("line_items"), list):
         return None
+
+    # If cached data had validation warnings rejecting valid document numbers from older versions, recover them
+    data["validation_warnings"] = []
+    if not data.get("tax_invoice"):
+        notes = str(data.get("notes") or "")
+        match = re.search(r"document number:\s*([A-Za-z0-9/-]+)", notes)
+        if match and is_plausible_document_number(match.group(1)):
+            data["tax_invoice"] = match.group(1)
+
+    validate_ai_extraction(data)
+    inv_num, do_num = resolve_document_numbers(data)
+    if inv_num:
+        data["tax_invoice"] = inv_num
+        data["invoice_number"] = inv_num
+    if do_num:
+        data["delivery_order"] = do_num
+        data["delivery_order_no"] = do_num
     return data
 
 
@@ -3203,6 +3223,15 @@ def save_cached_extraction(source_image_hash: str | None, data: dict[str, Any]) 
 
 
 def extraction_review_warnings(data: dict[str, Any]) -> list[str]:
+    # Ensure document numbers are resolved and synchronized
+    inv_num, do_num = resolve_document_numbers(data)
+    if inv_num and not data.get("tax_invoice"):
+        data["tax_invoice"] = inv_num
+        data["invoice_number"] = inv_num
+    if do_num and not data.get("delivery_order"):
+        data["delivery_order"] = do_num
+        data["delivery_order_no"] = do_num
+
     warnings: list[str] = []
     document_type = normalize_document_type(data)
     for warning in data.get("pair_compare_warnings") or []:
