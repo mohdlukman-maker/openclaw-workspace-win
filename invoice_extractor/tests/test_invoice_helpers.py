@@ -679,6 +679,28 @@ class ServiceOrderTests(unittest.TestCase):
             self.assertIn("Azyan Nasuha", str(ws["G62"].value))
 
 
+class PDFConversionTests(unittest.TestCase):
+    def test_convert_pdf_to_image_creates_valid_png(self) -> None:
+        import fitz
+        from invoice_bot import convert_pdf_to_image
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_path = Path(tmpdir) / "sample.pdf"
+            out_img = Path(tmpdir) / "sample.png"
+
+            # Create a simple PDF using PyMuPDF
+            doc = fitz.open()
+            page = doc.new_page(width=595, height=842)
+            page.insert_text((50, 50), "Blackfox Engineering Service Order Test", fontsize=14)
+            doc.save(pdf_path)
+            doc.close()
+
+            res = convert_pdf_to_image(pdf_path, out_img, dpi=150)
+            self.assertEqual(res, out_img)
+            self.assertTrue(out_img.exists())
+            self.assertGreater(out_img.stat().st_size, 1000)
+
+
 if __name__ == "__main__":
     unittest.main()
 

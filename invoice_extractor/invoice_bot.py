@@ -5253,13 +5253,55 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await process_invoice_image(update, context, image_path, invoice_id, received_at, source_image_hash)
 
 
+def convert_pdf_to_image(pdf_path: Path, output_image_path: Path, dpi: int = 200) -> Path:
+    try:
+        import fitz
+        from PIL import Image
+        import io
+
+        doc = fitz.open(pdf_path)
+        if len(doc) == 0:
+            raise ValueError("PDF file contains no pages.")
+
+        images = []
+        for i in range(min(len(doc), 4)):
+            page = doc[i]
+            pix = page.get_pixmap(dpi=dpi)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            images.append(img)
+        doc.close()
+
+        output_image_path.parent.mkdir(parents=True, exist_ok=True)
+        if len(images) == 1:
+            images[0].save(output_image_path, "PNG")
+        else:
+            total_width = max(img.width for img in images)
+            total_height = sum(img.height for img in images)
+            stitched = Image.new("RGB", (total_width, total_height), (255, 255, 255))
+            y_offset = 0
+            for img in images:
+                stitched.paste(img, (0, y_offset))
+                y_offset += img.height
+            stitched.save(output_image_path, "PNG")
+
+        return output_image_path
+    except Exception as exc:
+        logging.exception("Failed to convert PDF %s to image: %s", pdf_path, exc)
+        raise
+
+
 async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await handle_other_document(update, context)
+
+
+async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle document files (PDF, JPG, PNG, XLSX, etc.) seamlessly for extraction and registration."""
     if not update.message or not update.message.document:
         return
     if not await is_authorized(update):
         return
 
-    mime_type = update.message.document.mime_type or ""
+    mime_type = (update.message.document.mime_type or "").lower()
     file_name = update.message.document.file_name or "document"
     file_ext = Path(file_name).suffix.lower()
 
@@ -5275,93 +5317,85 @@ async def handle_document_image(update: Update, context: ContextTypes.DEFAULT_TY
         await registration_flow.handle_registration_file(update, context, file_path)
         return
 
-    if not mime_type.startswith("image/"):
-        await update.message.reply_text("Please send an image file or photo of the D.O or invoice.")
-        return
+    is_pdf = (file_ext == ".pdf" or mime_type == "application/pdf")
+    is_image = (mime_type.startswith("image/") or file_ext in (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"))
 
+    if not is_pdf and not is_image:
+        if not registration_flow.is_in_registration_mode(context):
+            await update.message.reply_text(
+                "📄 Please send a photo (JPG/PNG) or a PDF document of the invoice, D.O, or quotation."
+            )
+            return
+
+    # In registration mode
     if registration_flow.is_in_registration_mode(context):
         received_at = datetime.now(timezone.utc)
         invoice_id = "reg_" + invoice_id_from_timestamp(received_at)
-        suffix = file_ext or ".jpg"
+        suffix = file_ext or (".pdf" if is_pdf else ".jpg")
         IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-        image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+        file_path = IMAGE_DIR / f"{invoice_id}{suffix}"
         telegram_file = await context.bot.get_file(update.message.document.file_id)
-        await telegram_file.download_to_drive(custom_path=image_path)
-        await registration_flow.handle_registration_file(update, context, image_path)
+        await telegram_file.download_to_drive(custom_path=file_path)
+        if is_pdf:
+            image_path = IMAGE_DIR / f"{invoice_id}.png"
+            await asyncio.to_thread(convert_pdf_to_image, file_path, image_path)
+            await registration_flow.handle_registration_file(update, context, image_path)
+        else:
+            await registration_flow.handle_registration_file(update, context, file_path)
         return
 
-    # Check if in test mode
+    # In test mode
     if profile_management.get_test_state(context):
         received_at = datetime.now(timezone.utc)
         invoice_id = "test_" + invoice_id_from_timestamp(received_at)
-        suffix = file_ext or ".jpg"
+        suffix = file_ext or (".pdf" if is_pdf else ".jpg")
         IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-        image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+        file_path = IMAGE_DIR / f"{invoice_id}{suffix}"
         telegram_file = await context.bot.get_file(update.message.document.file_id)
-        await telegram_file.download_to_drive(custom_path=image_path)
-        handled = await profile_management.handle_test_file(update, context, image_path)
+        await telegram_file.download_to_drive(custom_path=file_path)
+        if is_pdf:
+            image_path = IMAGE_DIR / f"{invoice_id}.png"
+            await asyncio.to_thread(convert_pdf_to_image, file_path, image_path)
+            handled = await profile_management.handle_test_file(update, context, image_path)
+        else:
+            handled = await profile_management.handle_test_file(update, context, file_path)
         if handled:
             return
 
+    # Standard extraction for PDF or Image documents
     received_at = datetime.now(timezone.utc)
     invoice_id = invoice_id_from_timestamp(received_at)
-    suffix = file_ext or ".jpg"
-    suffix = Path(update.message.document.file_name or "document.jpg").suffix or ".jpg"
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
 
-    telegram_file = await context.bot.get_file(update.message.document.file_id)
-    await telegram_file.download_to_drive(custom_path=image_path)
-    source_image_hash = file_sha256(image_path)
+    if is_pdf:
+        pdf_path = IMAGE_DIR / f"{invoice_id}.pdf"
+        telegram_file = await context.bot.get_file(update.message.document.file_id)
+        await telegram_file.download_to_drive(custom_path=pdf_path)
+        source_image_hash = file_sha256(pdf_path)
+        image_path = IMAGE_DIR / f"{invoice_id}.png"
+        await asyncio.to_thread(convert_pdf_to_image, pdf_path, image_path)
+    else:
+        suffix = file_ext or ".jpg"
+        image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
+        telegram_file = await context.bot.get_file(update.message.document.file_id)
+        await telegram_file.download_to_drive(custom_path=image_path)
+        source_image_hash = file_sha256(image_path)
 
-    # ── OpenCV preprocessing pipeline (only needed for legacy local OCR) ──
-    if not ai_primary_enabled():
-        try:
-            enhanced_dir = ENHANCED_OUTPUTS_DIR / invoice_id
-            preprocess_result = await asyncio.to_thread(
-                image_processor.preprocess_invoice, image_path, enhanced_dir,
-            )
-            image_path = preprocess_result["preprocessed_ocr"]
-            logging.info("OpenCV preprocessing applied for %s.", invoice_id)
-        except Exception:
-            logging.exception(
-                "OpenCV preprocessing failed for %s; falling back to raw image",
-                invoice_id,
-            )
+        if not ai_primary_enabled():
+            try:
+                enhanced_dir = ENHANCED_OUTPUTS_DIR / invoice_id
+                preprocess_result = await asyncio.to_thread(
+                    image_processor.preprocess_invoice, image_path, enhanced_dir,
+                )
+                image_path = preprocess_result["preprocessed_ocr"]
+                logging.info("OpenCV preprocessing applied for %s.", invoice_id)
+            except Exception:
+                logging.exception(
+                    "OpenCV preprocessing failed for %s; falling back to raw image",
+                    invoice_id,
+                )
 
     await process_invoice_image(update, context, image_path, invoice_id, received_at, source_image_hash)
-
-
-async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle non-image document files (DOCX, PDF, etc.) — primarily for registration mode."""
-    if not update.message or not update.message.document:
-        return
-    if not await is_authorized(update):
-        return
-
-    mime_type = update.message.document.mime_type or ""
-    file_name = update.message.document.file_name or "document"
-    file_ext = Path(file_name).suffix.lower()
-
-    # Only handle during registration mode
-    if not registration_flow.is_in_registration_mode(context):
-        await update.message.reply_text(
-            "I can only process image files (photos or scanned images) for invoices. "
-            "Please send a photo of the document."
-        )
-        return
-
-    # In registration mode, accept any file type
-    received_at = datetime.now(timezone.utc)
-    invoice_id = "reg_" + invoice_id_from_timestamp(received_at)
-    suffix = file_ext or ".bin"
-    IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = IMAGE_DIR / f"{invoice_id}{suffix}"
-
-    telegram_file = await context.bot.get_file(update.message.document.file_id)
-    await telegram_file.download_to_drive(custom_path=file_path)
-
-    await registration_flow.handle_registration_file(update, context, file_path)
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
