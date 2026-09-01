@@ -357,7 +357,7 @@ Extract full supplier address into supplier_address.
 Extract supplier telephone/fax/mobile into supplier_phone.
 Extract supplier email into supplier_email.
 Extract supplier bank details into supplier_bank_account if visible.
-Extract the contact person name and phone number into contact_person, for example "Feddy Sim 016-8868203" or "Farah 011-54302725".
+Extract the site/delivery contact person name and phone number into contact_person (e.g. "Anuar 017-6909201", "Farah 011-54302725", "Feddy Sim 016-8868203"). IMPORTANT: If the document has a Delivery Address "Contact Person" (e.g. Anuar 017-6909201) and a Billing Address "Attn" (e.g. Azyan Nasuha), ALWAYS prioritize the Delivery Address Contact Person (Anuar) into contact_person. Never use the billing address Attn name when a delivery contact is present.
 Do not invent document numbers, dates, contact details, item details, prices, or amounts that are not visible.
 Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date."""
 
@@ -374,7 +374,7 @@ Important extraction rules:
 - Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
 - Extract document reference numbers: Invoice No into tax_invoice, and D.O No into delivery_order.
 - Extract date in YYYY-MM-DD format into invoice_date. For dates printed as DD-MM-YYYY or DD.MM.YYYY, interpret as Day-Month-Year.
-- Extract contact person name and phone number into contact_person (e.g. Sales Director, Person to Contact, Attn).
+- Extract contact person name and phone number into contact_person. Always prioritize the Delivery Address / Site "Contact Person" (e.g. Anuar 017-6909201, Farah 011-54302725) over any billing address "Attn" name.
 - Treat the line items/products as a row-by-row transcription task.
 - Capture every product/item row with full description, quantity, quantity unit, unit price, and line total.
 - For items like "Diesel 1600 Lts 4.96 per lts", line_total is 1600 * 4.96 = 7936.00.
@@ -1975,7 +1975,7 @@ def create_tuju_focused_crops(image_path: Path) -> dict[str, Path]:
             "contact": save_relative_crop(
                 image,
                 ENHANCED_DIR / f"{image_path.stem}_tuju_contact.jpg",
-                (0.07, 0.28, 0.72, 0.35),
+                (0.04, 0.18, 0.98, 0.38),
                 scale=3,
                 contrast=2.0,
             ),
@@ -2373,7 +2373,7 @@ def parse_ocr_contact_person(text: str) -> str | None:
     phone_pattern = r"(?:\+?6?0)?1\d[-\s]?\d{3,4}[-\s]?\d{4}"
 
     def clean_contact(value: str) -> str | None:
-        value = re.sub(r"\b(?:tel|fax|h/?p|hp|attn|contact person)\b\s*:?", "", value, flags=re.IGNORECASE)
+        value = re.sub(r"\b(?:tel|fax|h/?p|hp|attn|contact person|person to contact|site contact|delivery contact)\b\s*:?", "", value, flags=re.IGNORECASE)
         value = re.sub(r"[^A-Za-z0-9+()'/@.,& -]+", " ", value)
         value = " ".join(value.split(" -:"))
         value = re.sub(r"\s+", " ", value).strip(" :-,")
@@ -2382,9 +2382,9 @@ def parse_ocr_contact_person(text: str) -> str | None:
 
     for index, line in enumerate(lines):
         lowered = line.lower()
-        if "contact person" not in lowered:
+        if not any(k in lowered for k in ("contact person", "person to contact", "site contact", "delivery contact")):
             continue
-        candidate = re.sub(r"^.*?contact\s*person\s*:?", "", line, flags=re.IGNORECASE).strip()
+        candidate = re.sub(r"^.*?(?:contact\s*person|person\s*to\s*contact|site\s*contact|delivery\s*contact)\s*:?", "", line, flags=re.IGNORECASE).strip()
         if not re.search(phone_pattern, candidate) and index + 1 < len(lines):
             candidate = f"{candidate} {lines[index + 1]}".strip()
         cleaned = clean_contact(candidate)
