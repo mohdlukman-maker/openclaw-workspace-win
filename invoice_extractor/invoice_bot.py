@@ -1158,8 +1158,21 @@ def compare_and_merge_documents(
             "notes": " ".join(str(part) for part in [delivery_order.get("notes"), invoice.get("notes")] if part),
         }
     )
-    merged["delivery_order_contact_person"] = delivery_order.get("contact_person") or delivery_order.get("person_to_contact") or ""
-    merged["contact_person"] = merged["delivery_order_contact_person"]
+    do_contact = delivery_order.get("contact_person") or delivery_order.get("person_to_contact")
+    inv_contact = invoice.get("contact_person") or invoice.get("person_to_contact")
+    if do_contact and "azyan" not in str(do_contact).lower():
+        final_contact = str(do_contact).strip()
+    elif inv_contact and "azyan" not in str(inv_contact).lower():
+        final_contact = str(inv_contact).strip()
+    elif do_contact:
+        final_contact = str(do_contact).strip()
+    elif inv_contact:
+        final_contact = str(inv_contact).strip()
+    else:
+        final_contact = ""
+
+    merged["delivery_order_contact_person"] = final_contact
+    merged["contact_person"] = final_contact
     merged["document_type"] = "matched_pair"
 
     do_items = line_items_from_data(delivery_order)
@@ -2331,6 +2344,21 @@ def validate_ai_extraction(data: dict[str, Any]) -> dict[str, Any]:
         data["delivery_order_no"] = do_normalized
         if do_warning:
             warnings.append(do_warning)
+
+    raw_contact = data.get("contact_person")
+    if raw_contact:
+        contact_str = str(raw_contact).strip()
+        if "azyan" in contact_str.lower():
+            notes = str(data.get("notes") or "")
+            site_m = re.search(r"(?i)\b(?:contact\s*person|person\s*to\s*contact|site\s*contact)\s*[:\s]*([A-Za-z][A-Za-z0-9\s/().+-]{2,50})", notes)
+            if site_m:
+                data["contact_person"] = site_m.group(1).strip(" :-,")
+            else:
+                anuar_m = re.search(r"(?i)\b(anu[ao]r\s*(?:[0-9+ -]{7,15})?)\b", notes)
+                if anuar_m:
+                    data["contact_person"] = anuar_m.group(1).strip(" :-,")
+                else:
+                    data["contact_person"] = None
 
     normalized_date, date_warning = normalize_ai_date(data.get("invoice_date"), data.get("notes"))
     data["invoice_date"] = normalized_date
