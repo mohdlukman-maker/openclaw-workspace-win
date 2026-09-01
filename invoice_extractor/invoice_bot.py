@@ -1708,8 +1708,8 @@ def ensure_po_output_stem(data: dict[str, Any], received_at: datetime | None = N
     is_test = record_type == "test"
     test_prefix = "TEST " if is_test else ""
 
-    submitter_name = data.get("submitter_name") or data.get("requested_by") or ""
-    initials = get_user_initials(submitter_name)
+    doc_contact = delivery_order_requested_by(data)
+    initials = get_user_initials(doc_contact) if doc_contact else "BFE"
 
     if is_service_order(data):
         mmyy = po_month_mmyy(doc_date)
@@ -3768,8 +3768,8 @@ def save_template_workbook(
         worksheet["B19"] = supplier_profile.get("email") or ""
         worksheet["B20"] = supplier_profile.get("bank_account") or ""
 
-    contact = delivery_order_requested_by(data) or (supplier_profile.get("default_contact") if supplier_profile else "") or "Lukman 018-9414868"
-    worksheet["H59"] = contact
+    contact = delivery_order_requested_by(data)
+    worksheet["H59"] = contact if contact else ""
 
     for offset, item in enumerate(line_items):
         row = TEMPLATE_FIRST_ITEM_ROW + offset
@@ -3833,12 +3833,12 @@ def save_material_requisition_workbook(
     supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
         data, configured_default_supplier(), configured_supplier_aliases()
     )
-    requested_by = delivery_order_requested_by(data) or (supplier_profile.get("default_contact") if supplier_profile else "") or "Lukman 018-9414868"
+    requested_by = delivery_order_requested_by(data)
 
     worksheet["N10"] = str(data.get("pr_number") or po_reference)
     worksheet["N12"] = str(template_display_date(date_request))
-    worksheet["D15"] = requested_by
-    worksheet["D52"] = requested_by
+    worksheet["D15"] = requested_by if requested_by else ""
+    worksheet["D52"] = requested_by if requested_by else ""
 
     if supplier_profile:
         worksheet["E44"] = supplier_profile.get("display_name") or ""
@@ -3966,11 +3966,9 @@ def save_service_order_workbook(
 
     worksheet["H51"] = "=SUM(H27:H50)"
 
-    contact = delivery_order_requested_by(data) or (supplier_profile.get("default_contact") if supplier_profile else "") or "Zarin 019-9396812"
-    worksheet["G55"] = f"Person to contact : {contact}"
-
-    submitter = data.get("submitter_name") or data.get("requested_by") or "Azyan Nasuha"
-    worksheet["G62"] = f"Prepare by : {submitter}"
+    contact = delivery_order_requested_by(data)
+    worksheet["G55"] = f"Person to contact : {contact}" if contact else ""
+    worksheet["G62"] = f"Prepare by : {contact}" if contact else ""
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(target_path)

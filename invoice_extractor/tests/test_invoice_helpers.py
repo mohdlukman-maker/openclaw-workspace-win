@@ -343,7 +343,7 @@ class DateAndStemTests(unittest.TestCase):
         stem = ensure_po_output_stem(data)
         self.assertIn("BFE PO TECH 0826", stem)
         self.assertIn("WALIHIN PETROLEUM SDN BHD", stem)
-        self.assertEqual(data.get("pr_number"), "BFE/PO/TECH/AN/0826-0001")
+        self.assertEqual(data.get("pr_number"), "BFE/PO/TECH/FS/0826-0001")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -356,7 +356,7 @@ class DateAndStemTests(unittest.TestCase):
             self.assertEqual(count, 2)
             saved_wb = load_workbook(po_path)
             saved_ws = saved_wb[TEMPLATE_SHEET_NAME]
-            self.assertEqual(saved_ws["J15"].value, "BFE/PO/TECH/AN/0826-0001")
+            self.assertEqual(saved_ws["J15"].value, "BFE/PO/TECH/FS/0826-0001")
             self.assertEqual(saved_ws["B15"].value, "WALIHIN PETROLEUM SDN BHD")
             self.assertEqual(saved_ws["B16"].value, "Lot 7, GSL 3104, Hakka Avenue Estate")
             self.assertEqual(saved_ws["B17"].value, "5th Miles Penrissen Road, 93250 Kuching, Sarawak.")
@@ -620,7 +620,7 @@ class ServiceOrderTests(unittest.TestCase):
             "order_type": "service_order",
             "invoice_date": "2026-07-24",
             "supplier_name": "TUJU GALAKSI SDN BHD",
-            "submitter_name": "Azyan Nasuha",
+            "contact_person": "Azyan Nasuha",
             "line_items": [
                 {"description": "Services one unit Heli forklift", "quantity": 1, "unit_price": 230},
             ],
@@ -670,7 +670,7 @@ class ServiceOrderTests(unittest.TestCase):
         data = {
             "tax_invoice": "TG-K09124",
             "invoice_date": "2026-07-24",
-            "submitter_name": "Azyan Nasuha",
+            "contact_person": "Azyan Nasuha",
             "service_description": "Services one unit Heli forklift at HPJ",
             "so_number": "BFE/SO/TUJU/AN/0726/012",
             "supplier_name": "TUJU GALAKSI SDN BHD",
