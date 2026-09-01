@@ -315,10 +315,10 @@ INVOICE_HEADERS = [
     "Amount",
 ]
 
-SYSTEM_PROMPT = """You extract procurement document data (Quotation, Tax Invoice, Delivery Order, Service Order, Cash Bill, Receipt) from images.
+SYSTEM_PROMPT = """You extract procurement document data (Quotation, Tax Invoice, Delivery Order, Service Order, Cash Bill, Receipt, Matched Pair) from images and PDFs.
 Return only valid JSON matching this schema:
 {
-  "document_type": "quotation" | "invoice" | "delivery_order" | "cash_bill" | "service_order" | "unknown",
+  "document_type": "quotation" | "invoice" | "delivery_order" | "cash_bill" | "service_order" | "matched_pair" | "unknown",
   "order_type": "purchase_order" | "service_order",
   "service_description": string | null,
   "supplier_name": string | null,
@@ -327,7 +327,9 @@ Return only valid JSON matching this schema:
   "supplier_email": string | null,
   "supplier_bank_account": string | null,
   "tax_invoice": string | null,
+  "delivery_order": string | null,
   "invoice_date": "YYYY-MM-DD" | null,
+  "delivery_order_date": "YYYY-MM-DD" | null,
   "contact_person": string | null,
   "terms": string | null,
   "confidence": number,
@@ -345,9 +347,10 @@ Return only valid JSON matching this schema:
   ]
 }
 Use null when a field is not visible. Make confidence a number from 0 to 1.
+If the document contains BOTH a Delivery Order and a Tax Invoice (or multiple pages with D.O and Invoice), set document_type to "matched_pair", put the Invoice number in tax_invoice and the Delivery Order number in delivery_order.
 For Quotations, set document_type to "quotation", put Quotation reference/number into tax_invoice and date in invoice_date.
-For Delivery Orders, set document_type to "delivery_order" and put the visible Delivery Order No in tax_invoice and invoice_date.
-For Tax Invoices, set document_type to "invoice" and put the visible Tax Invoice number in tax_invoice and invoice_date.
+For Delivery Orders, set document_type to "delivery_order" and put the visible Delivery Order No in delivery_order (or tax_invoice) and date in invoice_date.
+For Tax Invoices, set document_type to "invoice" and put the visible Tax Invoice number in tax_invoice and date in invoice_date.
 If the invoice is for servicing machines/vehicles, maintenance, labour charges, or repairs (e.g. 'Servicing one unit Heli forklift at HPJ'), set order_type to "service_order", extract the summary sentence into service_description, and put the invoice number into tax_invoice.
 Extract supplier company name from header letterhead into supplier_name.
 Extract full supplier address into supplier_address.
@@ -358,9 +361,10 @@ Extract the contact person name and phone number into contact_person, for exampl
 Do not invent document numbers, dates, contact details, item details, prices, or amounts that are not visible.
 Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date."""
 
-EXTRACTION_INSTRUCTIONS = """Extract the document details from this image.
+EXTRACTION_INSTRUCTIONS = """Extract the document details from this image or PDF.
 
-First classify the image:
+First classify the document:
+- If the document contains BOTH an Invoice and a Delivery Order (or multi-page D.O + Invoice set), set document_type to "matched_pair", extract Invoice No into tax_invoice and D.O No into delivery_order.
 - If the image title/header says Quotation, Quote, RE: QUOTATION, or Best Price, return document_type "quotation".
 - If the image title/label says Delivery Order, Delivery Order No, D.O, return document_type "delivery_order".
 - If the image title/label says Tax Invoice, Invoice No, Cash Bill, Receipt, or has price/amount/tax invoice fields, return document_type "invoice".
@@ -368,7 +372,7 @@ First classify the image:
 
 Important extraction rules:
 - Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
-- Extract document reference number (Invoice No, D.O No, Quotation Ref) into tax_invoice.
+- Extract document reference numbers: Invoice No into tax_invoice, and D.O No into delivery_order.
 - Extract date in YYYY-MM-DD format into invoice_date. For dates printed as DD-MM-YYYY or DD.MM.YYYY, interpret as Day-Month-Year.
 - Extract contact person name and phone number into contact_person (e.g. Sales Director, Person to Contact, Attn).
 - Treat the line items/products as a row-by-row transcription task.
@@ -814,8 +818,10 @@ def normalize_text(value: Any) -> str:
 
 def normalize_document_type(data: dict[str, Any]) -> str:
     raw_type = normalize_text(data.get("document_type") or data.get("document_kind") or data.get("type"))
-    if raw_type in {"matched_pair", "matched pair", "pair", "do_invoice_pair", "d.o invoice pair"}:
+    if raw_type in {"matched_pair", "matched pair", "pair", "do_invoice_pair", "d.o invoice pair", "combined"}:
         return "matched_pair"
+    if raw_type in {"service_order", "service order", "so"}:
+        return DOCUMENT_TYPE_SERVICE_ORDER
     if raw_type in {"quotation", "quote", "re: quotation", "re quotation", "proposal", "proforma"}:
         return DOCUMENT_TYPE_QUOTATION
     if raw_type in {"cash_bill", "cash bill", "receipt", "official receipt"}:
@@ -823,7 +829,14 @@ def normalize_document_type(data: dict[str, Any]) -> str:
     if raw_type in {"delivery_order", "delivery order", "do", "d.o", "d/o"}:
         return DOCUMENT_TYPE_DELIVERY_ORDER
     if raw_type in {"invoice", "tax invoice", "tax_invoice"}:
+        if data.get("delivery_order") and data.get("tax_invoice"):
+            return "matched_pair"
         return DOCUMENT_TYPE_INVOICE
+
+    if is_service_order(data):
+        return DOCUMENT_TYPE_SERVICE_ORDER
+    if data.get("delivery_order") and data.get("tax_invoice"):
+        return "matched_pair"
 
     line_items = line_items_from_data(data)
     has_prices = any(item.get("unit_price") not in (None, "") or item.get("line_total") not in (None, "") for item in line_items)
@@ -3344,13 +3357,18 @@ def save_pending_review(
     )
     data["supplier_profile"] = supplier_profile
     is_so = is_service_order(data)
+    is_pair = (document_type == "matched_pair" or bool(data.get("delivery_order") and data.get("tax_invoice")))
     is_standalone = (
         is_so
-        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER)
+        or is_pair
+        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER, "matched_pair")
         or supplier_profile.get("category") == "TECH"
         or "walihin" in str(supplier_profile.get("display_name", "")).lower()
     )
     if is_standalone:
+        if is_pair:
+            data.setdefault("delivery_order_no", data.get("delivery_order") or data.get("tax_invoice"))
+            data.setdefault("invoice_number", data.get("tax_invoice"))
         pending["data"] = data
         pending["invoice_id"] = invoice_id
         pending["received_at"] = received_at.isoformat()
@@ -4702,9 +4720,11 @@ async def process_invoice_image(
         data, configured_default_supplier(), configured_supplier_aliases()
     )
     is_so = is_service_order(data)
+    is_pair = (document_type == "matched_pair" or bool(data.get("delivery_order") and data.get("tax_invoice")))
     is_standalone = (
         is_so
-        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER)
+        or is_pair
+        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER, "matched_pair")
         or supplier_profile.get("category") == "TECH"
         or "walihin" in str(supplier_profile.get("display_name", "")).lower()
     )
@@ -4745,7 +4765,7 @@ async def process_invoice_image(
     line_item_count = len(line_items_from_data(data))
 
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
-    doc_label = "Service Order" if is_so else ("Quotation" if is_standalone else "D.O + Invoice Pair")
+    doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     date_str = data.get("invoice_date") or "Date unknown"
     contact_str = data.get("contact_person") or "Contact unknown"
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
@@ -4801,14 +4821,16 @@ async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     document_type = normalize_document_type(data)
     is_so = is_service_order(data)
+    is_pair = (document_type == "matched_pair" or bool(data.get("delivery_order") and data.get("tax_invoice")))
     is_standalone = (
         is_so
-        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER)
+        or is_pair
+        or document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL, DOCUMENT_TYPE_SERVICE_ORDER, "matched_pair")
         or supplier_profile.get("category") == "TECH"
         or "walihin" in str(supplier_profile.get("display_name", "")).lower()
     )
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
-    doc_label = "Service Order" if is_so else ("Quotation" if is_standalone else "D.O + Invoice Pair")
+    doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     date_str = data.get("invoice_date") or "Date unknown"
     contact_str = data.get("contact_person") or "Contact unknown"

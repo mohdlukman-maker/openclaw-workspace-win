@@ -52,7 +52,7 @@ KNOWN_SUPPLIER_PROFILES = {
         "aliases": ["tuju galaxy", "tuju galaksi", "tuju", "tg-"],
     },
     "MENG SOON HUAT": {
-        "category": "PO",
+        "category": "TECH",
         "display_name": "MENG SOON HUAT ELECTRICAL SDN BHD",
         "address_line1": "LOT 161, GROUND FLOOR, LORONG DATUK ABANG ABDUL RAHIM 5",
         "address_line2": "93450 KUCHING, SARAWAK.",
