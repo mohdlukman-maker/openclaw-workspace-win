@@ -405,12 +405,14 @@ class LocalOCRParsingTests(unittest.TestCase):
 
     def test_ai_document_number_rejects_invalid_or_phone_values(self) -> None:
         self.assertEqual(normalize_ai_document_number("TG-KO8941")[0], "TG-K08941")
-        self.assertIsNone(normalize_ai_document_number("TIC-X08941")[0])
+        self.assertEqual(normalize_ai_document_number("I26-027577")[0], "I26-027577")
+        self.assertEqual(normalize_ai_document_number("D26-029307")[0], "D26-029307")
         self.assertIsNone(normalize_ai_document_number("016-8873726")[0])
+        self.assertIsNone(normalize_ai_document_number("Tel: 082-265809")[0])
 
     def test_validate_ai_extraction_adds_warnings_for_bad_fields(self) -> None:
         data = {
-            "tax_invoice": "TIC-X08941",
+            "tax_invoice": "016-8873726",
             "invoice_date": "not visible",
             "notes": "unclear header",
             "line_items": [],

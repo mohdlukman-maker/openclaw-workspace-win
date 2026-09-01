@@ -897,7 +897,17 @@ def normalize_visible_document_number(value: Any) -> str | None:
 def is_plausible_document_number(value: str | None) -> bool:
     if not value:
         return False
-    return bool(re.match(r"^TG-[A-Z0-9]{4,}$", value))
+    text = str(value).strip()
+    if len(text) < 3:
+        return False
+    lowered = text.lower()
+    if lowered in {"tel", "fax", "email", "phone", "date", "total", "page", "invoice", "delivery order", "attn", "contact"}:
+        return False
+    digits = re.sub(r"\D", "", text)
+    if (len(digits) in (9, 10, 11) or (len(digits) == 12 and digits.startswith("60"))) and not re.search(r"[a-zA-Z]", text):
+        if digits.startswith(("01", "08", "03", "04", "05", "06", "07", "09", "601", "608")):
+            return False
+    return bool(re.search(r"[A-Za-z0-9]", text))
 
 
 def normalize_item_no(value: Any) -> str:
@@ -1044,8 +1054,19 @@ def compare_and_merge_documents(
     merged = json.loads(json.dumps(delivery_order))
     warnings: list[str] = []
 
-    do_number = delivery_order.get("tax_invoice") or delivery_order.get("invoice_number")
-    invoice_number = invoice.get("tax_invoice") or invoice.get("invoice_number")
+    do_number = (
+        delivery_order.get("delivery_order")
+        or delivery_order.get("delivery_order_no")
+        or delivery_order.get("delivery_order_number")
+        or delivery_order.get("do_number")
+        or delivery_order.get("tax_invoice")
+        or delivery_order.get("invoice_number")
+    )
+    invoice_number = (
+        invoice.get("tax_invoice")
+        or invoice.get("invoice_number")
+        or invoice.get("invoice_no")
+    )
     if do_number and invoice_number and normalize_invoice_number(do_number) != normalize_invoice_number(invoice_number):
         warnings.append(f"D.O number {do_number} does not match invoice number {invoice_number}.")
     elif not do_number:
@@ -1067,9 +1088,10 @@ def compare_and_merge_documents(
     elif not invoice_date:
         warnings.append("Both invoice date and D.O date are missing.")
 
-    merged["tax_invoice"] = do_number or invoice_number
+    merged["tax_invoice"] = invoice_number or do_number
     merged["invoice_number"] = invoice_number or do_number
     merged["delivery_order_no"] = do_number or invoice_number
+    merged["delivery_order"] = do_number or invoice_number
     merged["supplier_name"] = detected_supplier_name(
         {
             "delivery_order_data": delivery_order,
@@ -2221,10 +2243,10 @@ def normalize_ai_document_number(value: Any) -> tuple[str | None, str | None]:
     if re.search(r"\b(?:tel|fax|h/?p|phone|mobile)\b", text, flags=re.IGNORECASE):
         return None, f"Rejected phone/contact value as document number: {text}"
     digits = re.sub(r"\D", "", text)
-    if len(digits) >= 8 and not re.search(r"\b[T1I]G[-/ ]?[KXR]", text, flags=re.IGNORECASE):
-        return None, f"Rejected numeric contact-like value as document number: {text}"
-    parsed = parse_ocr_tax_invoice(text)
-    normalized = normalize_visible_document_number(parsed or text)
+    if (len(digits) in (9, 10, 11) or (len(digits) == 12 and digits.startswith("60"))) and not re.search(r"[a-zA-Z]", text):
+        if digits.startswith(("01", "08", "03", "04", "05", "06", "07", "09", "601", "608")):
+            return None, f"Rejected numeric contact phone number as document number: {text}"
+    normalized = normalize_visible_document_number(text)
     if is_plausible_document_number(normalized):
         return normalized, None
     return None, f"Rejected invalid AI document number: {text}"
@@ -2232,11 +2254,25 @@ def normalize_ai_document_number(value: Any) -> tuple[str | None, str | None]:
 
 def validate_ai_extraction(data: dict[str, Any]) -> dict[str, Any]:
     warnings = list(data.get("validation_warnings") or [])
-    normalized_number, number_warning = normalize_ai_document_number(data.get("tax_invoice") or data.get("invoice_number"))
+    raw_tax_inv = data.get("tax_invoice") or data.get("invoice_number") or data.get("invoice_no")
+    normalized_number, number_warning = normalize_ai_document_number(raw_tax_inv)
     data["tax_invoice"] = normalized_number
     data.pop("invoice_number", None)
     if number_warning:
         warnings.append(number_warning)
+
+    raw_do = (
+        data.get("delivery_order")
+        or data.get("delivery_order_no")
+        or data.get("delivery_order_number")
+        or data.get("do_number")
+    )
+    if raw_do:
+        do_normalized, do_warning = normalize_ai_document_number(raw_do)
+        data["delivery_order"] = do_normalized
+        data["delivery_order_no"] = do_normalized
+        if do_warning:
+            warnings.append(do_warning)
 
     normalized_date, date_warning = normalize_ai_date(data.get("invoice_date"), data.get("notes"))
     data["invoice_date"] = normalized_date
@@ -3621,7 +3657,27 @@ def save_template_workbook(
     worksheet = workbook[TEMPLATE_SHEET_NAME]
     clear_template_items(worksheet)
 
-    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number")
+    tax_invoice = (
+        data.get("tax_invoice")
+        or data.get("invoice_number")
+        or data.get("invoice_no")
+        or data.get("quotation_number")
+        or (data.get("invoice_data") or {}).get("tax_invoice")
+        or (data.get("invoice_data") or {}).get("invoice_number")
+        or ""
+    )
+    delivery_order_no = (
+        data.get("delivery_order_no")
+        or data.get("delivery_order")
+        or data.get("delivery_order_number")
+        or data.get("do_number")
+        or data.get("do_no")
+        or (data.get("delivery_order_data") or {}).get("delivery_order")
+        or (data.get("delivery_order_data") or {}).get("tax_invoice")
+        or (data.get("delivery_order_data") or {}).get("invoice_number")
+        or (tax_invoice if data.get("document_type") == DOCUMENT_TYPE_DELIVERY_ORDER else "")
+        or ""
+    )
     invoice_date = data.get("invoice_date")
     po_date = data.get("po_document_date") or purchase_order_date_from_invoice(invoice_date)
     data["po_document_date"] = po_date
@@ -3630,8 +3686,8 @@ def save_template_workbook(
     pr_number = data.get("pr_number") or target_path.stem
     worksheet["J15"] = pr_number
     worksheet["J16"] = template_display_date(po_date)
-    worksheet["J17"] = tax_invoice or ""
-    worksheet["J18"] = data.get("delivery_order_no") or (tax_invoice if data.get("document_type") == DOCUMENT_TYPE_DELIVERY_ORDER else "")
+    worksheet["J17"] = tax_invoice
+    worksheet["J18"] = delivery_order_no
 
     # Dynamic Supplier Profile into Vendor Block (B15:B20)
     supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
