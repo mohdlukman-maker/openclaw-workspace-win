@@ -761,7 +761,14 @@ def ai_fallback_enabled() -> bool:
 
 
 def ai_primary_enabled() -> bool:
-    return env_bool("AI_PRIMARY_ENABLED", False)
+    has_ai_key = bool(
+        gemini_api_key()
+        or os.getenv("OPENAI_API_KEY")
+        or os.getenv("OPENROUTER_API_KEY")
+        or os.getenv("OPENAI_BEARER_TOKEN")
+        or os.getenv("OPENAI_TOKEN_COMMAND")
+    )
+    return env_bool("AI_PRIMARY_ENABLED", has_ai_key)
 
 
 def configured_allowed_chat_ids() -> set[str]:
@@ -2689,7 +2696,7 @@ async def extract_invoice_hybrid(image_path: Path, model: str) -> tuple[dict[str
         try:
             data = await extract_invoice(image_path, model, primary=True)
             data["extraction_method"] = "ai_primary"
-            if os.getenv("LOCAL_OCR_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}:
+            if os.getenv("LOCAL_OCR_VERIFICATION", "0").strip().lower() in {"1", "true", "yes", "on"}:
                 try:
                     local_result = await asyncio.to_thread(extract_invoice_with_local_ocr, image_path)
                     data["local_ocr_verification"] = {
@@ -2701,9 +2708,9 @@ async def extract_invoice_hybrid(image_path: Path, model: str) -> tuple[dict[str
                     }
                 except Exception as exc:
                     data["local_ocr_verification"] = {"accepted": False, "reason": str(exc)}
-            return data, "AI primary", "AI primary extraction is enabled; local OCR is verification only."
+            return data, "AI primary", "AI primary extraction is enabled."
         except Exception as exc:
-            if os.getenv("LOCAL_OCR_ENABLED", "1").strip().lower() in {"1", "true", "yes", "on"}:
+            if os.getenv("LOCAL_OCR_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}:
                 logging.exception("AI primary extraction failed; trying local OCR path")
             else:
                 raise
@@ -4439,37 +4446,23 @@ async def process_invoice_image(
     if image_quality_warning and env_bool("IMAGE_QUALITY_WARN_USER", False):
         await safe_reply_text(update, image_quality_warning, "image quality warning")
 
-    # ── Multi-version OCR comparison ────────────────────────────
-    enhanced_dir = image_path.parent
-    if (enhanced_dir / "clean.jpg").exists():
-        try:
-            best_text, best_result = await asyncio.to_thread(
-                ocr_enhanced.run_multi_ocr_comparison,
-                enhanced_dir,
-                ocr_single_text_and_confidence,
-            )
-            if best_result and best_result.get("image_version"):
-                best_version = best_result["image_version"]
-                best_img = enhanced_dir / f"{best_version}.jpg"
-                if best_img.exists():
-                    logging.info(
-                        "Multi-OCR: best version=%s score=%s; swapping image_path",
-                        best_version,
-                        best_result.get("score"),
-                    )
-                    image_path = best_img
-                else:
-                    logging.warning(
-                        "Multi-OCR: best image not found %s; keeping original",
-                        best_img,
-                    )
-        except Exception:
-            logging.exception("Multi-OCR comparison failed; keeping original image_path")
-    else:
-        logging.debug(
-            "Enhanced versions not found at %s; skipping multi-OCR comparison",
-            enhanced_dir,
-        )
+    # ── Multi-version OCR comparison (only needed for legacy local OCR) ──
+    if not ai_primary_enabled():
+        enhanced_dir = image_path.parent
+        if (enhanced_dir / "clean.jpg").exists():
+            try:
+                best_text, best_result = await asyncio.to_thread(
+                    ocr_enhanced.run_multi_ocr_comparison,
+                    enhanced_dir,
+                    ocr_single_text_and_confidence,
+                )
+                if best_result and best_result.get("image_version"):
+                    best_version = best_result["image_version"]
+                    best_img = enhanced_dir / f"{best_version}.jpg"
+                    if best_img.exists():
+                        image_path = best_img
+            except Exception:
+                logging.exception("Multi-OCR comparison failed; keeping original image_path")
 
     try:
         cached_data = load_cached_extraction(source_image_hash)
