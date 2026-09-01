@@ -4315,7 +4315,7 @@ async def process_invoice_image(
     image_quality_report = await asyncio.to_thread(inspect_document_image_quality, image_path)
     logging.info("Image quality image=%s report=%s", image_path.name, image_quality_report)
     image_quality_warning = format_image_quality_warning(image_quality_report)
-    if image_quality_warning and env_bool("IMAGE_QUALITY_WARN_USER", True):
+    if image_quality_warning and env_bool("IMAGE_QUALITY_WARN_USER", False):
         await safe_reply_text(update, image_quality_warning, "image quality warning")
 
     # ── Multi-version OCR comparison ────────────────────────────
