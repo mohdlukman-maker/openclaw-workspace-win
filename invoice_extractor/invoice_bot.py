@@ -357,7 +357,7 @@ Extract full supplier address into supplier_address.
 Extract supplier telephone/fax/mobile into supplier_phone.
 Extract supplier email into supplier_email.
 Extract supplier bank details into supplier_bank_account if visible.
-Extract the site/delivery contact person name and phone number into contact_person (e.g. "Anuar 017-6909201", "Farah 011-54302725", "Feddy Sim 016-8868203"). IMPORTANT: A contact person must always include an actual person's name (never return a standalone phone number without a name). NEVER extract the billing office contact "Azyan Nasuha" or office phone "016-8873726". Always prioritize the Delivery Address Site Contact Person (e.g. "Anuar 017-6909201").
+Extract the site/delivery contact person name and phone number into contact_person. On Delivery Orders (such as TUJU GALAKSI), the contact person is written under "Delivery Address" in the right-hand box (e.g. "Contact Person : Anuar 017-6909201" or "Anuor 017-6909201") or bottom "Received by". You MUST extract this site contact person (e.g. "Anuar 017-6909201"). Do NOT return null if a site contact is present. Do NOT extract billing "Attn: Azyan Nasuha" or office phone "016-8873726".
 Do not invent document numbers, dates, contact details, item details, prices, or amounts that are not visible.
 Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date."""
 
@@ -374,7 +374,7 @@ Important extraction rules:
 - Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
 - Extract document reference numbers: Invoice No into tax_invoice, and D.O No into delivery_order.
 - Extract date in YYYY-MM-DD format into invoice_date. For dates printed as DD-MM-YYYY or DD.MM.YYYY, interpret as Day-Month-Year.
-- Extract contact person name and phone number into contact_person. Must include a person's name (never return a phone number without a name). Always prioritize the Delivery Address / Site "Contact Person" (e.g. Anuar 017-6909201, Farah 011-54302725) over any billing address. Never use office telephone "016-8873726" or "Azyan Nasuha".
+- Extract contact person name and phone number into contact_person. On Delivery Orders, ALWAYS extract the contact from the "Delivery Address" section on the right (e.g. "Contact Person: Anuar 017-6909201") or "Received by" signature. Never extract the billing "Attn: Azyan Nasuha" or telephone "016-8873726".
 - Treat the line items/products as a row-by-row transcription task.
 - Capture every product/item row with full description, quantity, quantity unit, unit price, and line total.
 - For items like "Diesel 1600 Lts 4.96 per lts", line_total is 1600 * 4.96 = 7936.00.
