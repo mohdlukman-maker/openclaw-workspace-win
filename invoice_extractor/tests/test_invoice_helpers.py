@@ -10,12 +10,16 @@ import pending_store
 import procurement
 import retention
 import suppliers
+from openpyxl import load_workbook
 from invoice_bot import (
     DOCUMENT_TYPE_INVOICE,
+    MR_SHEET_NAME,
+    TEMPLATE_SHEET_NAME,
     UNKNOWN_DOCUMENT_FORMAT_MESSAGE,
     apply_manual_po_running_number,
     classify_document,
     compare_and_merge_documents,
+    ensure_po_output_stem,
     file_sha256,
     extraction_review_warnings,
     is_openai_auth_error,
@@ -31,6 +35,8 @@ from invoice_bot import (
     parse_ocr_line_items,
     parse_ocr_tax_invoice,
     save_cached_extraction,
+    save_material_requisition_workbook,
+    save_template_workbook,
     text_looks_like_tuju_invoice,
 )
 
@@ -316,6 +322,51 @@ class DateAndStemTests(unittest.TestCase):
             self.assertEqual(saved_ws["K19"].value, "4 roll")
             self.assertEqual(saved_ws["L19"].value, 13.8)
             self.assertEqual(saved_ws["N19"].value, 55.2)
+            saved_wb.close()
+
+    def test_walihin_quotation_and_tech_stem_generation(self) -> None:
+        data = {
+            "document_type": "quotation",
+            "supplier_name": "WALIHIN PETROLEUM SDN. BHD. (432843-D)",
+            "supplier_address": "Lot 7,GSL 3104,Hakka Avenue Estate, 5th Miles Penrissen Road,93250 Kuching,Sarawak.",
+            "supplier_phone": "082-575987 / 016-8865086",
+            "supplier_email": "walihinpetroleum@yahoo.com",
+            "tax_invoice": "QUOTATION",
+            "invoice_date": "2026-08-10",
+            "contact_person": "Feddy Sim 016-8868203",
+            "submitter_name": "Mrs. Azyan Nasuha",
+            "line_items": [
+                {"item_no": 1, "description": "Diesel", "quantity": 1600, "quantity_unit": "Lts", "unit_price": 4.96, "line_total": 7936.0},
+                {"item_no": 2, "description": "Transport Charge", "quantity": 1, "quantity_unit": "", "unit_price": 120.0, "line_total": 120.0},
+            ],
+        }
+        stem = ensure_po_output_stem(data)
+        self.assertIn("BFE PO TECH 0826", stem)
+        self.assertIn("WALIHIN PETROLEUM SDN BHD", stem)
+        self.assertEqual(data.get("pr_number"), "BFE/PO/TECH/AN/0826-0001")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            po_path = temp_path / f"{stem}.xlsx"
+            template_path = Path(__file__).resolve().parent.parent / "templates" / "purchase_order_template.xlsx"
+            if not template_path.exists():
+                template_path = Path(__file__).resolve().parent.parent / "data" / "templates" / "purchase_order_template.xlsx"
+
+            count = save_template_workbook(po_path, template_path, data)
+            self.assertEqual(count, 2)
+            saved_wb = load_workbook(po_path)
+            saved_ws = saved_wb[TEMPLATE_SHEET_NAME]
+            self.assertEqual(saved_ws["J15"].value, "BFE/PO/TECH/AN/0826-0001")
+            self.assertEqual(saved_ws["B15"].value, "WALIHIN PETROLEUM SDN BHD")
+            self.assertEqual(saved_ws["B16"].value, "Lot 7, GSL 3104, Hakka Avenue Estate")
+            self.assertEqual(saved_ws["B17"].value, "5th Miles Penrissen Road, 93250 Kuching, Sarawak.")
+            self.assertEqual(saved_ws["B18"].value, "TEL/FAX : 082-575987 / Office H/P : 016-8865086")
+            self.assertEqual(saved_ws["B19"].value, "Email : walihinpetroleum@yahoo.com")
+            self.assertEqual(saved_ws["B20"].value, "No Acc : 561118064592 (Maybank)")
+            self.assertEqual(saved_ws["C26"].value, "Diesel")
+            self.assertEqual(saved_ws["G26"].value, "1600 Lts")
+            self.assertEqual(saved_ws["H26"].value, 4.96)
+            self.assertEqual(saved_ws["J26"].value, 7936.0)
             saved_wb.close()
 
 

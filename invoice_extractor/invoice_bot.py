@@ -52,6 +52,8 @@ EDIT_PO_RUNNING_NUMBER_KEY = "edit_po_running_number"
 SAVE_WITH_CUSTOM_NAME_KEY = "save_with_custom_name"
 DOCUMENT_TYPE_DELIVERY_ORDER = "delivery_order"
 DOCUMENT_TYPE_INVOICE = "invoice"
+DOCUMENT_TYPE_QUOTATION = "quotation"
+DOCUMENT_TYPE_CASH_BILL = "cash_bill"
 AUTO_SAVE_RETRY_SECONDS = 10
 AUTO_SAVE_MAX_ATTEMPTS = 90
 DEFAULT_LOCAL_OCR_MIN_CONFIDENCE = 55.0
@@ -308,14 +310,19 @@ INVOICE_HEADERS = [
     "Amount",
 ]
 
-SYSTEM_PROMPT = """You extract delivery order data from TUJU document images.
+SYSTEM_PROMPT = """You extract procurement document data (Quotation, Tax Invoice, Delivery Order, Cash Bill, Receipt) from images.
 Return only valid JSON matching this schema:
 {
-  "document_type": "delivery_order" | "invoice" | "unknown",
+  "document_type": "quotation" | "invoice" | "delivery_order" | "cash_bill" | "unknown",
+  "supplier_name": string | null,
+  "supplier_address": string | null,
+  "supplier_phone": string | null,
+  "supplier_email": string | null,
+  "supplier_bank_account": string | null,
   "tax_invoice": string | null,
   "invoice_date": "YYYY-MM-DD" | null,
-  "supplier_name": string | null,
   "contact_person": string | null,
+  "terms": string | null,
   "confidence": number,
   "notes": string | null,
   "line_items": [
@@ -330,38 +337,35 @@ Return only valid JSON matching this schema:
   ]
 }
 Use null when a field is not visible. Make confidence a number from 0 to 1.
-For TUJU Delivery Orders, set document_type to "delivery_order" and put the visible Delivery Order No in tax_invoice and invoice_date.
-For TUJU Tax Invoices, set document_type to "invoice" and put the visible Tax Invoice number in tax_invoice and invoice_date.
-The D.O number and Invoice number are the same for this workflow.
-Extract the contact person name and phone number into contact_person as one value, for example "Farah 011-54302725".
-Extract the supplier/vendor/company name into supplier_name when visible.
+For Quotations, set document_type to "quotation", put Quotation reference/number into tax_invoice and date in invoice_date.
+For Delivery Orders, set document_type to "delivery_order" and put the visible Delivery Order No in tax_invoice and invoice_date.
+For Tax Invoices, set document_type to "invoice" and put the visible Tax Invoice number in tax_invoice and invoice_date.
+Extract supplier company name from header letterhead into supplier_name.
+Extract full supplier address into supplier_address.
+Extract supplier telephone/fax/mobile into supplier_phone.
+Extract supplier email into supplier_email.
+Extract supplier bank details into supplier_bank_account if visible.
+Extract the contact person name and phone number into contact_person, for example "Feddy Sim 016-8868203" or "Farah 011-54302725".
 Do not invent document numbers, dates, contact details, item details, prices, or amounts that are not visible.
-If a critical field is unclear, cropped out, upside-down, or only inferred from context, return null for that field and explain the uncertainty in notes.
-Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date.
-If a document is not a TUJU invoice or delivery order, set confidence below 0.5 and explain in notes."""
+Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date."""
 
-EXTRACTION_INSTRUCTIONS = """Extract the TUJU document details from this image.
+EXTRACTION_INSTRUCTIONS = """Extract the document details from this image.
 
 First classify the image:
-- If the image title/label says Delivery Order, Delivery Order No, D.O, or has contact person delivery fields, return document_type "delivery_order".
-- If the image title/label says Tax Invoice, Invoice No, or has price/amount/tax invoice fields, return document_type "invoice".
+- If the image title/header says Quotation, Quote, RE: QUOTATION, or Best Price, return document_type "quotation".
+- If the image title/label says Delivery Order, Delivery Order No, D.O, return document_type "delivery_order".
+- If the image title/label says Tax Invoice, Invoice No, Cash Bill, Receipt, or has price/amount/tax invoice fields, return document_type "invoice".
 
-Important line item rules:
-- Treat the Delivery Order item table as a row-by-row transcription task.
-- Capture every numbered row in the table. Do not skip rows near folds, shadows, stamps, signatures, or page creases.
-- If the table has a "No" column, put that value in item_no.
-- The description must be the full visible description text for that row.
-- The quantity column may use comma thousands separators. Convert "1,564" to 1564 and "7,862" to 7862, not 1.564 or 7.862.
-- If a unit is printed beside the quantity, such as pcs, pc, boxes, box, unit, nos, set, roll, or lengths, put only that unit text in quantity_unit.
-- Decimal points are only decimals when a dot is printed.
-- If the table header says "Rental/Mth", use unit "Mth" and put that column in unit_price.
-- Put visible Unit Price/RM and Amount/RM values in unit_price and line_total. For Delivery Orders without price columns, use null.
-- Put the Delivery Order No shown beside "Delivery Order No" in tax_invoice. For invoices, use the Tax Invoice number.
-- If the document number, date, or contact person is not clearly visible, return null for that field. Do not infer or guess it from nearby numbers.
-- Phone numbers such as H/P, Tel, or Fax must never be used as the document number or date.
-- Extract the contact person name and phone number into contact_person. Prefer the "Contact Person" box; if it is missing, use Attn plus H/P.
-- Before returning JSON, compare line_items only with visible row numbers inside the product table. Ignore numbered footer notes, payment instructions, terms, signatures, or bank details.
-- If a row is partially unclear, still include it with the visible fields and mention the uncertainty in notes."""
+Important extraction rules:
+- Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
+- Extract document reference number (Invoice No, D.O No, Quotation Ref) into tax_invoice.
+- Extract date in YYYY-MM-DD format into invoice_date. For dates printed as DD-MM-YYYY or DD.MM.YYYY, interpret as Day-Month-Year.
+- Extract contact person name and phone number into contact_person (e.g. Sales Director, Person to Contact, Attn).
+- Treat the line items/products as a row-by-row transcription task.
+- Capture every product/item row with full description, quantity, quantity unit, unit price, and line total.
+- For items like "Diesel 1600 Lts 4.96 per lts", line_total is 1600 * 4.96 = 7936.00.
+- For items like "Transport Charge RM 120", description is "Transport Charge", quantity 1, unit_price 120.00, line_total 120.00.
+- Ignore numbered footer notes, validity notices, payment instructions, terms, or signatures as product rows."""
 
 RECONCILIATION_INSTRUCTIONS = """Re-check the document extraction against the image and OCR text.
 
@@ -795,6 +799,10 @@ def normalize_document_type(data: dict[str, Any]) -> str:
     raw_type = normalize_text(data.get("document_type") or data.get("document_kind") or data.get("type"))
     if raw_type in {"matched_pair", "matched pair", "pair", "do_invoice_pair", "d.o invoice pair"}:
         return "matched_pair"
+    if raw_type in {"quotation", "quote", "re: quotation", "re quotation", "proposal", "proforma"}:
+        return DOCUMENT_TYPE_QUOTATION
+    if raw_type in {"cash_bill", "cash bill", "receipt", "official receipt"}:
+        return DOCUMENT_TYPE_CASH_BILL
     if raw_type in {"delivery_order", "delivery order", "do", "d.o", "d/o"}:
         return DOCUMENT_TYPE_DELIVERY_ORDER
     if raw_type in {"invoice", "tax invoice", "tax_invoice"}:
@@ -805,6 +813,8 @@ def normalize_document_type(data: dict[str, Any]) -> str:
     has_contact = bool(data.get("contact_person") or data.get("person_to_contact"))
     notes = normalize_text(data.get("notes"))
     method = normalize_text(data.get("extraction_method"))
+    if "quotation" in notes or "quote" in notes:
+        return DOCUMENT_TYPE_QUOTATION
     if has_prices or "tax invoice" in notes:
         return DOCUMENT_TYPE_INVOICE
     if has_contact or "delivery order" in notes or "do" in method:
@@ -813,6 +823,10 @@ def normalize_document_type(data: dict[str, Any]) -> str:
 
 
 def document_type_label(document_type: str) -> str:
+    if document_type == DOCUMENT_TYPE_QUOTATION:
+        return "Quotation"
+    if document_type == DOCUMENT_TYPE_CASH_BILL:
+        return "Cash Bill"
     if document_type == DOCUMENT_TYPE_INVOICE:
         return "Invoice"
     if document_type == DOCUMENT_TYPE_DELIVERY_ORDER:
@@ -1323,6 +1337,10 @@ def configured_procurement_supplier_name() -> str:
     return os.getenv("PROCUREMENT_SUPPLIER_NAME", DEFAULT_PROCUREMENT_SUPPLIER_NAME).strip() or DEFAULT_PROCUREMENT_SUPPLIER_NAME
 
 
+def configured_default_supplier() -> str:
+    return configured_procurement_supplier_name()
+
+
 def configured_supplier_aliases() -> dict[str, list[str]]:
     return suppliers.supplier_aliases_from_env(os.getenv("SUPPLIER_ALIASES"))
 
@@ -1515,6 +1533,33 @@ def manual_po_running_number_is_available(
     return running_number not in used_po_running_numbers(month_name, month_key, record_type)
 
 
+def get_user_initials(submitter: Any) -> str:
+    name = ""
+    if isinstance(submitter, str):
+        name = submitter
+    elif submitter and hasattr(submitter, "full_name"):
+        name = getattr(submitter, "full_name") or ""
+    elif submitter and hasattr(submitter, "first_name"):
+        first = getattr(submitter, "first_name") or ""
+        last = getattr(submitter, "last_name") or ""
+        name = f"{first} {last}".strip()
+
+    clean_name = re.sub(r"[^A-Za-z\s]+", "", name).strip()
+    words = [w for w in clean_name.split() if w.lower() not in ("mrs", "mr", "ms", "miss", "dr", "encik", "puan")]
+    if not words:
+        return "BFE"
+    if len(words) == 1:
+        return words[0][:2].upper()
+    return "".join(w[0].upper() for w in words[:3])
+
+
+def po_month_mmyy(value: Any) -> str:
+    parsed = parse_date_or_datetime(value)
+    if not parsed:
+        parsed = datetime.now()
+    return parsed.strftime("%m%y")
+
+
 def ensure_po_output_stem(data: dict[str, Any], received_at: datetime | None = None) -> str:
     existing = data.get("po_output_stem")
     if existing:
@@ -1527,16 +1572,49 @@ def ensure_po_output_stem(data: dict[str, Any], received_at: datetime | None = N
         or data.get("do_date")
         or received_at
     )
-    month_name = po_month_name(doc_date)
-    month_key = po_month_key(doc_date)
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
+    )
+    data["supplier_profile"] = supplier_profile
+    category = (supplier_profile.get("category") or "TUJU").upper()
+    supplier_display_name = supplier_profile.get("display_name") or "TUJU GALAKSI SDN BHD"
+
     record_type = (data.get("record_type") or invoice_record_type(data.get("submitter_chat_id"))).strip().lower()
-    prefix = TEST_PO_FILENAME_PREFIX if record_type == "test" else PO_FILENAME_PREFIX
-    running_number = next_po_running_number(month_name, month_key, record_type)
-    stem = f"{prefix} {month_name} {running_number:04d}"
-    data["po_month_key"] = month_key
-    data["po_month_name"] = month_name
+    is_test = record_type == "test"
+    test_prefix = "TEST " if is_test else ""
+
+    submitter_name = data.get("submitter_name") or data.get("requested_by") or ""
+    initials = get_user_initials(submitter_name)
+
+    if category == "TECH":
+        mmyy = po_month_mmyy(doc_date)
+        running_key = f"TECH_{mmyy}"
+        running_number = next_po_running_number(running_key, running_key, record_type)
+        stem = f"{test_prefix}BFE PO TECH {mmyy} {running_number:04d} {supplier_display_name}"
+        pr_number = f"BFE/PO/TECH/{initials}/{mmyy}-{running_number:04d}"
+        data["po_month_key"] = running_key
+        data["po_month_name"] = mmyy
+    elif category == "TUJU":
+        month_name = po_month_name(doc_date)
+        month_key = po_month_key(doc_date)
+        prefix = TEST_PO_FILENAME_PREFIX if is_test else PO_FILENAME_PREFIX
+        running_number = next_po_running_number(month_name, month_key, record_type)
+        stem = f"{prefix} {month_name} {running_number:04d}"
+        pr_number = stem
+        data["po_month_key"] = month_key
+        data["po_month_name"] = month_name
+    else:
+        mmyy = po_month_mmyy(doc_date)
+        running_key = f"{category}_{mmyy}"
+        running_number = next_po_running_number(running_key, running_key, record_type)
+        stem = f"{test_prefix}BFE PO {category} {mmyy} {running_number:04d} {supplier_display_name}"
+        pr_number = f"BFE/PO/{category}/{initials}/{mmyy}-{running_number:04d}"
+        data["po_month_key"] = running_key
+        data["po_month_name"] = mmyy
+
     data["po_running_number"] = f"{running_number:04d}"
     data["po_output_stem"] = stem
+    data["pr_number"] = pr_number
     data["record_type"] = record_type
     return stem
 
@@ -3189,6 +3267,23 @@ def save_pending_review(
     pending["submitter_chat_id"] = str(submitter_chat_id or pending.get("submitter_chat_id") or "")
     pending["submitter_name"] = submitter_name or pending.get("submitter_name") or ""
 
+    # Check if standalone quotation/single document workflow applies
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
+    )
+    data["supplier_profile"] = supplier_profile
+    is_standalone = (
+        document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL)
+        or supplier_profile.get("category") == "TECH"
+        or "walihin" in str(supplier_profile.get("display_name", "")).lower()
+    )
+    if is_standalone:
+        pending["data"] = data
+        pending["invoice_id"] = invoice_id
+        pending["received_at"] = received_at.isoformat()
+        pending["image_path"] = str(image_path)
+        pending["item_source_confirmed"] = True
+
     documents = pending.get("documents") or {}
     delivery_order_record = documents.get(DOCUMENT_TYPE_DELIVERY_ORDER)
     invoice_record = documents.get(DOCUMENT_TYPE_INVOICE)
@@ -3423,15 +3518,32 @@ def save_template_workbook(
     worksheet = workbook[TEMPLATE_SHEET_NAME]
     clear_template_items(worksheet)
 
-    tax_invoice = data.get("tax_invoice") or data.get("invoice_number")
+    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number")
     invoice_date = data.get("invoice_date")
-    po_date = purchase_order_date_from_invoice(invoice_date)
+    po_date = data.get("po_document_date") or purchase_order_date_from_invoice(invoice_date)
     data["po_document_date"] = po_date
-    worksheet["J15"] = target_path.stem
+
+    # PR Number, Dates & References
+    pr_number = data.get("pr_number") or target_path.stem
+    worksheet["J15"] = pr_number
     worksheet["J16"] = template_display_date(po_date)
-    worksheet["J17"] = tax_invoice
-    worksheet["J18"] = tax_invoice
-    worksheet["H59"] = delivery_order_requested_by(data)
+    worksheet["J17"] = tax_invoice or ""
+    worksheet["J18"] = data.get("delivery_order_no") or (tax_invoice if data.get("document_type") == DOCUMENT_TYPE_DELIVERY_ORDER else "")
+
+    # Dynamic Supplier Profile into Vendor Block (B15:B20)
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
+    )
+    if supplier_profile:
+        worksheet["B15"] = supplier_profile.get("display_name") or "SUPPLIER"
+        worksheet["B16"] = supplier_profile.get("address_line1") or ""
+        worksheet["B17"] = supplier_profile.get("address_line2") or ""
+        worksheet["B18"] = supplier_profile.get("tel_fax") or ""
+        worksheet["B19"] = supplier_profile.get("email") or ""
+        worksheet["B20"] = supplier_profile.get("bank_account") or ""
+
+    contact = delivery_order_requested_by(data) or (supplier_profile.get("default_contact") if supplier_profile else "") or "Lukman 018-9414868"
+    worksheet["H59"] = contact
 
     for offset, item in enumerate(line_items):
         row = TEMPLATE_FIRST_ITEM_ROW + offset
@@ -3487,12 +3599,21 @@ def save_material_requisition_workbook(
     date_request = date_request_from_purchase_order_date(po_date)
     data["material_requisition_date_request"] = date_request
     data["material_requisition_reference"] = po_reference
-    requested_by = delivery_order_requested_by(data)
 
-    worksheet["N10"] = str(po_reference)
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
+    )
+    requested_by = delivery_order_requested_by(data) or (supplier_profile.get("default_contact") if supplier_profile else "") or "Lukman 018-9414868"
+
+    worksheet["N10"] = str(data.get("pr_number") or po_reference)
     worksheet["N12"] = str(template_display_date(date_request))
     worksheet["D15"] = requested_by
     worksheet["D52"] = requested_by
+
+    if supplier_profile:
+        worksheet["E44"] = supplier_profile.get("display_name") or ""
+        worksheet["E45"] = supplier_profile.get("address_line1") or ""
+        worksheet["E46"] = supplier_profile.get("address_line2") or ""
 
     for offset, item in enumerate(line_items):
         row = MR_FIRST_ITEM_ROW + offset
@@ -4384,7 +4505,16 @@ async def process_invoice_image(
     )
     document_type = normalize_document_type(data)
     paired_data = pending_review_data(pending)
-    if not paired_data:
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
+    )
+    is_standalone = (
+        document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL)
+        or supplier_profile.get("category") == "TECH"
+        or "walihin" in str(supplier_profile.get("display_name", "")).lower()
+    )
+
+    if not paired_data and not is_standalone:
         missing = pending_missing_document_types(pending)
         next_needed = document_type_label(missing[0]) if missing else "other document"
         await safe_reply_text(
@@ -4402,14 +4532,31 @@ async def process_invoice_image(
         await reply_long_text(update, f"Extracted {document_type_label(document_type)} items:\n{format_item_review(data)}")
         return
 
-    data = paired_data
-    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or "number unknown"
+    data = paired_data or data
+    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     line_item_count = len(line_items_from_data(data))
-    await safe_reply_text(
-        update,
-        f"D.O + Invoice pair ready for review.\n{pending_pair_summary(pending)}\n\nMatched No: {tax_invoice}\nP.O date source: {data.get('invoice_date') or 'date unknown'}\nContact: {data.get('contact_person') or 'contact unknown'}\nP.O line items found: {line_item_count}",
-        "extraction summary",
-    )
+
+    if is_standalone:
+        supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
+        await safe_reply_text(
+            update,
+            (
+                f"{document_type_label(document_type)} ready for review.\n\n"
+                f"Supplier: {supplier_title}\n"
+                f"Ref / No: {tax_invoice}\n"
+                f"Date: {data.get('invoice_date') or 'date unknown'}\n"
+                f"Contact: {data.get('contact_person') or 'contact unknown'}\n"
+                f"Line items found: {line_item_count}"
+            ),
+            "standalone extraction summary",
+        )
+    else:
+        await safe_reply_text(
+            update,
+            f"D.O + Invoice pair ready for review.\n{pending_pair_summary(pending)}\n\nMatched No: {tax_invoice}\nP.O date source: {data.get('invoice_date') or 'date unknown'}\nContact: {data.get('contact_person') or 'contact unknown'}\nP.O line items found: {line_item_count}",
+            "extraction summary",
+        )
+
     await reply_long_text(update, format_review_warnings(data))
     await reply_long_text(update, f"Extracted items:\n{format_item_review(data)}")
     record_instruction = (
@@ -4417,7 +4564,7 @@ async def process_invoice_image(
         if data.get("record_type") == "test"
         else ""
     )
-    source_instruction = pair_item_source_instruction(data)
+    source_instruction = pair_item_source_instruction(data) if not is_standalone else ""
     if source_instruction:
         await safe_reply_text(update, source_instruction, "item source instructions")
     else:
