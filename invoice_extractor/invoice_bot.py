@@ -894,6 +894,61 @@ def normalize_visible_document_number(value: Any) -> str | None:
     return text
 
 
+def clean_malaysian_document_prefixes(value: Any, is_do: bool = False) -> str | None:
+    if value is None:
+        return None
+    val = str(value).strip().upper()
+    if not val:
+        return None
+    # Normalize 126-XXXXXX -> I26-XXXXXX for invoices
+    if not is_do and re.match(r"^1(\d{2}-\d{4,})$", val):
+        val = "I" + val[1:]
+    # Normalize 026-XXXXXX or O26-XXXXXX -> D26-XXXXXX for Delivery Orders
+    if is_do and re.match(r"^[0O](\d{2}-\d{4,})$", val):
+        val = "D" + val[1:]
+    # Normalize general letter confusion for TG
+    val = re.sub(r"^[1I]G(?=[-/])", "TG", val)
+    return val
+
+
+def resolve_document_numbers(data: dict[str, Any], raw_text: str | None = None) -> tuple[str | None, str | None]:
+    tax_inv = (
+        data.get("tax_invoice")
+        or data.get("invoice_number")
+        or data.get("invoice_no")
+        or data.get("quotation_number")
+        or (data.get("invoice_data") or {}).get("tax_invoice")
+        or (data.get("invoice_data") or {}).get("invoice_number")
+    )
+    do_num = (
+        data.get("delivery_order_no")
+        or data.get("delivery_order")
+        or data.get("delivery_order_number")
+        or data.get("do_number")
+        or data.get("do_no")
+        or (data.get("delivery_order_data") or {}).get("delivery_order")
+        or (data.get("delivery_order_data") or {}).get("tax_invoice")
+        or (data.get("delivery_order_data") or {}).get("invoice_number")
+    )
+
+    combined_text = " ".join([str(raw_text or ""), str(data.get("notes") or "")])
+    if combined_text.strip():
+        if not tax_inv:
+            inv_pattern = r"(?i)\b(?:tax\s*invoice|invoice|inv)\s*(?:no\.?|number|#)?\s*[:\s]*([I1]2\d-\d{4,}|[A-Z0-9/-]{5,})"
+            m = re.search(inv_pattern, combined_text)
+            if m and is_plausible_document_number(m.group(1)):
+                tax_inv = m.group(1)
+        if not do_num:
+            do_pattern = r"(?i)\b(?:delivery\s*order|d\.?o\.?|our\s*d/?o\s*no\.?|your\s*ref\.?)\s*(?:no\.?|number|#)?\s*[:\s]*([DO0]2\d-\d{4,}|[A-Z0-9/-]{5,})"
+            m = re.search(do_pattern, combined_text)
+            if m and is_plausible_document_number(m.group(1)):
+                do_num = m.group(1)
+
+    tax_inv_clean = clean_malaysian_document_prefixes(tax_inv, is_do=False)
+    do_num_clean = clean_malaysian_document_prefixes(do_num, is_do=True)
+    return tax_inv_clean, do_num_clean
+
+
 def is_plausible_document_number(value: str | None) -> bool:
     if not value:
         return False
@@ -3657,27 +3712,10 @@ def save_template_workbook(
     worksheet = workbook[TEMPLATE_SHEET_NAME]
     clear_template_items(worksheet)
 
-    tax_invoice = (
-        data.get("tax_invoice")
-        or data.get("invoice_number")
-        or data.get("invoice_no")
-        or data.get("quotation_number")
-        or (data.get("invoice_data") or {}).get("tax_invoice")
-        or (data.get("invoice_data") or {}).get("invoice_number")
-        or ""
-    )
-    delivery_order_no = (
-        data.get("delivery_order_no")
-        or data.get("delivery_order")
-        or data.get("delivery_order_number")
-        or data.get("do_number")
-        or data.get("do_no")
-        or (data.get("delivery_order_data") or {}).get("delivery_order")
-        or (data.get("delivery_order_data") or {}).get("tax_invoice")
-        or (data.get("delivery_order_data") or {}).get("invoice_number")
-        or (tax_invoice if data.get("document_type") == DOCUMENT_TYPE_DELIVERY_ORDER else "")
-        or ""
-    )
+    tax_invoice, delivery_order_no = resolve_document_numbers(data)
+    tax_invoice = tax_invoice or ""
+    delivery_order_no = delivery_order_no or (tax_invoice if data.get("document_type") == DOCUMENT_TYPE_DELIVERY_ORDER else "")
+
     invoice_date = data.get("invoice_date")
     po_date = data.get("po_document_date") or purchase_order_date_from_invoice(invoice_date)
     data["po_document_date"] = po_date
@@ -5033,6 +5071,16 @@ async def save_pending_with_mode(
         data["submitter_name"] = str(pending.get("submitter_name") or "")
         data["record_type"] = invoice_record_type(data.get("submitter_chat_id"), force_record)
         pending["force_record"] = force_record
+
+        # Ensure invoice & DO numbers are fully resolved
+        inv_res, do_res = resolve_document_numbers(data)
+        if inv_res:
+            data["tax_invoice"] = inv_res
+            data["invoice_number"] = inv_res
+        if do_res:
+            data["delivery_order"] = do_res
+            data["delivery_order_no"] = do_res
+
         if manual_running_number is not None:
             if not manual_po_running_number_is_available(manual_running_number, received_at, data["record_type"]):
                 _, month_name, _ = po_output_stem_for_running_number(manual_running_number, received_at, data["record_type"])
@@ -5496,15 +5544,37 @@ async def process_multi_page_pdf(
         await review_pending(update, context)
         return
 
-    # Case 2: Multi-page single document (e.g. 2-page Invoice or Service Order)
+    # Case 2: Multi-page single document or combined set
     first_data = dict(extracted_pages[0])
     combined_items: list[dict[str, Any]] = []
     for p_data in extracted_pages:
         items = p_data.get("line_items") or []
         combined_items.extend(items)
+        # Pull any header fields present in subsequent pages into first_data
+        inv_num, do_num = resolve_document_numbers(p_data)
+        if inv_num and not first_data.get("tax_invoice"):
+            first_data["tax_invoice"] = inv_num
+            first_data["invoice_number"] = inv_num
+        if do_num and not first_data.get("delivery_order"):
+            first_data["delivery_order"] = do_num
+            first_data["delivery_order_no"] = do_num
+        if not first_data.get("contact_person") and p_data.get("contact_person"):
+            first_data["contact_person"] = p_data.get("contact_person")
+        if not first_data.get("supplier_name") and p_data.get("supplier_name"):
+            first_data["supplier_name"] = p_data.get("supplier_name")
+        if not first_data.get("invoice_date") and p_data.get("invoice_date"):
+            first_data["invoice_date"] = p_data.get("invoice_date")
 
     first_data["line_items"] = combined_items
     repair_line_item_arithmetic(first_data)
+
+    inv_final, do_final = resolve_document_numbers(first_data)
+    if inv_final:
+        first_data["tax_invoice"] = inv_final
+        first_data["invoice_number"] = inv_final
+    if do_final:
+        first_data["delivery_order"] = do_final
+        first_data["delivery_order_no"] = do_final
 
     save_pending_review(
         context=context,
