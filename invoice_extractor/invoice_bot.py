@@ -2084,23 +2084,7 @@ def detect_tuju_invoice_from_crops(crops: dict[str, Path], cache: dict[tuple[str
 
 
 def focused_ai_image_paths(image_path: Path) -> tuple[list[Path], str]:
-    if tuju_profile_enabled():
-        try:
-            crops = create_tuju_focused_crops(image_path)
-            is_tuju, _, _ = detect_tuju_invoice_from_crops(crops)
-            if is_tuju:
-                return (
-                    [crops["vendor"], crops["details"], crops["contact"], crops["table"]],
-                    "TUJU focused crops: vendor/header, delivery order details, contact person, and product table.",
-                )
-        except Exception:
-            logging.exception("TUJU focused crop detection failed; using default AI images")
-
-    table_crop_path = create_enhanced_table_crop(image_path)
-    return (
-        [image_path, table_crop_path],
-        "The first image is the full invoice. The second image is an enhanced crop of the line-item table.",
-    )
+    return [image_path], "Full document image."
 
 
 def unique_existing_paths(paths: list[Path]) -> list[Path]:
@@ -2119,37 +2103,7 @@ def unique_existing_paths(paths: list[Path]) -> list[Path]:
 
 
 def ai_primary_image_paths(image_path: Path) -> tuple[list[Path], str]:
-    candidates = [image_path]
-    enhanced_dir = image_path.parent
-    for name in ("original.jpg", "preprocessed.jpg", "preprocessed_ocr.jpg", "table_friendly.jpg"):
-        candidates.append(enhanced_dir / name)
-
-    crop_labels: list[str] = []
-    try:
-        do_crops = create_tuju_focused_crops(image_path)
-        for key in ("vendor", "details", "contact", "table"):
-            candidates.append(do_crops[key])
-            crop_labels.append(f"D.O {key}")
-    except Exception:
-        logging.exception("Could not create TUJU D.O crops for AI-primary package")
-
-    try:
-        invoice_crops = create_tuju_invoice_focused_crops(image_path)
-        for key in ("header", "contact", "table", "total"):
-            candidates.append(invoice_crops[key])
-            crop_labels.append(f"invoice {key}")
-    except Exception:
-        logging.exception("Could not create TUJU invoice crops for AI-primary package")
-
-    paths = unique_existing_paths(candidates)
-    return (
-        paths,
-        (
-            "AI-primary image package: full received/original image, full preprocessed image, "
-            "OCR-friendly full image, table-friendly full image, and focused crops "
-            f"({', '.join(crop_labels) if crop_labels else 'none'}). Use full-page images to verify orientation and header fields."
-        ),
-    )
+    return [image_path], "Full document image."
 
 
 def parse_ocr_date(text: str) -> str | None:
@@ -3062,7 +3016,13 @@ def load_cached_extraction(source_image_hash: str | None) -> dict[str, Any] | No
     except Exception:
         logging.exception("Could not load cached extraction for image hash %s", source_image_hash[:12])
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    if data.get("extraction_method") in ("local_ocr", "tuju_focused_ocr", "legacy", "failed"):
+        return None
+    if not isinstance(data.get("line_items"), list):
+        return None
+    return data
 
 
 def save_cached_extraction(source_image_hash: str | None, data: dict[str, Any]) -> None:
