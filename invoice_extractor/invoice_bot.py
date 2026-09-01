@@ -357,7 +357,7 @@ Extract full supplier address into supplier_address.
 Extract supplier telephone/fax/mobile into supplier_phone.
 Extract supplier email into supplier_email.
 Extract supplier bank details into supplier_bank_account if visible.
-Extract the site/delivery contact person name and phone number into contact_person (e.g. "Anuar 017-6909201", "Farah 011-54302725", "Feddy Sim 016-8868203"). IMPORTANT: If the document has a Delivery Address "Contact Person" (e.g. Anuar 017-6909201) and a Billing Address "Attn" (e.g. Azyan Nasuha), ALWAYS prioritize the Delivery Address Contact Person (Anuar) into contact_person. Never use the billing address Attn name when a delivery contact is present.
+Extract the site/delivery contact person name and phone number into contact_person (e.g. "Anuar 017-6909201", "Farah 011-54302725", "Feddy Sim 016-8868203"). IMPORTANT: A contact person must always include an actual person's name (never return a standalone phone number without a name). NEVER extract the billing office contact "Azyan Nasuha" or office phone "016-8873726". Always prioritize the Delivery Address Site Contact Person (e.g. "Anuar 017-6909201").
 Do not invent document numbers, dates, contact details, item details, prices, or amounts that are not visible.
 Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date."""
 
@@ -374,7 +374,7 @@ Important extraction rules:
 - Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
 - Extract document reference numbers: Invoice No into tax_invoice, and D.O No into delivery_order.
 - Extract date in YYYY-MM-DD format into invoice_date. For dates printed as DD-MM-YYYY or DD.MM.YYYY, interpret as Day-Month-Year.
-- Extract contact person name and phone number into contact_person. Always prioritize the Delivery Address / Site "Contact Person" (e.g. Anuar 017-6909201, Farah 011-54302725) over any billing address "Attn" name.
+- Extract contact person name and phone number into contact_person. Must include a person's name (never return a phone number without a name). Always prioritize the Delivery Address / Site "Contact Person" (e.g. Anuar 017-6909201, Farah 011-54302725) over any billing address. Never use office telephone "016-8873726" or "Azyan Nasuha".
 - Treat the line items/products as a row-by-row transcription task.
 - Capture every product/item row with full description, quantity, quantity unit, unit price, and line total.
 - For items like "Diesel 1600 Lts 4.96 per lts", line_total is 1600 * 4.96 = 7936.00.
@@ -1158,19 +1158,11 @@ def compare_and_merge_documents(
             "notes": " ".join(str(part) for part in [delivery_order.get("notes"), invoice.get("notes")] if part),
         }
     )
-    do_contact = delivery_order.get("contact_person") or delivery_order.get("person_to_contact")
-    inv_contact = invoice.get("contact_person") or invoice.get("person_to_contact")
-    if do_contact and "azyan" not in str(do_contact).lower():
-        final_contact = str(do_contact).strip()
-    elif inv_contact and "azyan" not in str(inv_contact).lower():
-        final_contact = str(inv_contact).strip()
-    elif do_contact:
-        final_contact = str(do_contact).strip()
-    elif inv_contact:
-        final_contact = str(inv_contact).strip()
-    else:
-        final_contact = ""
-
+    final_contact = (
+        resolve_document_contact_person(delivery_order)
+        or resolve_document_contact_person(invoice)
+        or ""
+    )
     merged["delivery_order_contact_person"] = final_contact
     merged["contact_person"] = final_contact
     merged["document_type"] = "matched_pair"
@@ -2345,20 +2337,7 @@ def validate_ai_extraction(data: dict[str, Any]) -> dict[str, Any]:
         if do_warning:
             warnings.append(do_warning)
 
-    raw_contact = data.get("contact_person")
-    if raw_contact:
-        contact_str = str(raw_contact).strip()
-        if "azyan" in contact_str.lower():
-            notes = str(data.get("notes") or "")
-            site_m = re.search(r"(?i)\b(?:contact\s*person|person\s*to\s*contact|site\s*contact)\s*[:\s]*([A-Za-z][A-Za-z0-9\s/().+-]{2,50})", notes)
-            if site_m:
-                data["contact_person"] = site_m.group(1).strip(" :-,")
-            else:
-                anuar_m = re.search(r"(?i)\b(anu[ao]r\s*(?:[0-9+ -]{7,15})?)\b", notes)
-                if anuar_m:
-                    data["contact_person"] = anuar_m.group(1).strip(" :-,")
-                else:
-                    data["contact_person"] = None
+    data["contact_person"] = resolve_document_contact_person(data)
 
     normalized_date, date_warning = normalize_ai_date(data.get("invoice_date"), data.get("notes"))
     data["invoice_date"] = normalized_date
@@ -2371,6 +2350,45 @@ def validate_ai_extraction(data: dict[str, Any]) -> dict[str, Any]:
         warning_text = "Validation warnings: " + "; ".join(warnings)
         data["notes"] = f"{notes} {warning_text}".strip() if notes else warning_text
     return data
+
+
+def normalize_contact_person(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not re.search(r"[a-zA-Z]", text):
+        return None
+    if "azyan" in text.lower() or "8873726" in text:
+        return None
+    if any(w in text.lower() for w in ("not visible", "none", "unknown", "mentioned", "nil", "n/a", "no contact")):
+        return None
+    text = re.sub(r"(?i)\banuor\b", "Anuar", text)
+    text = re.sub(r"\b(?:tel|fax|h/?p|hp|attn|contact person|person to contact|site contact|delivery contact)\b\s*:?", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"[^A-Za-z0-9+()'/@.,& -]+", " ", text)
+    text = re.sub(r"^(?:[A-Za-z]\s*[:.-]?\s+)+(?=[A-Z][a-z])", "", text).strip(" :-,")
+    text = " ".join(text.split()).strip(" :-,")
+    if len(re.findall(r"[a-zA-Z]", text)) < 2:
+        return None
+    return text or None
+
+
+def resolve_document_contact_person(data: dict[str, Any], full_text: str | None = None) -> str | None:
+    contact = normalize_contact_person(data.get("contact_person") or data.get("delivery_order_contact_person"))
+    if contact:
+        return contact
+
+    search_text = "\n".join([str(data.get("notes") or ""), str(full_text or "")])
+    anuar_match = re.search(r"(?i)\b(anu[ao]r\s*(?:01\d[-\s]?\d{3,4}[-\s]?\d{4})?)\b", search_text)
+    if anuar_match:
+        return normalize_contact_person(anuar_match.group(1))
+
+    cp_match = re.search(r"(?i)\b(?:contact\s*person|person\s*to\s*contact|site\s*contact)\s*:\s*([A-Za-z][A-Za-z0-9\s/().+-]{2,50})", search_text)
+    if cp_match:
+        normalized = normalize_contact_person(cp_match.group(1))
+        if normalized:
+            return normalized
+
+    return None
 
 
 def parse_ocr_tax_invoice(text: str) -> str | None:
@@ -2400,14 +2418,6 @@ def parse_ocr_contact_person(text: str) -> str | None:
     compact_text = "\n".join(lines)
     phone_pattern = r"(?:\+?6?0)?1\d[-\s]?\d{3,4}[-\s]?\d{4}"
 
-    def clean_contact(value: str) -> str | None:
-        value = re.sub(r"\b(?:tel|fax|h/?p|hp|attn|contact person|person to contact|site contact|delivery contact)\b\s*:?", "", value, flags=re.IGNORECASE)
-        value = re.sub(r"[^A-Za-z0-9+()'/@.,& -]+", " ", value)
-        value = " ".join(value.split(" -:"))
-        value = re.sub(r"\s+", " ", value).strip(" :-,")
-        value = re.sub(r"^(?:[A-Za-z]\s*[:.-]?\s+)+(?=[A-Z][a-z])", "", value).strip(" :-,")
-        return value or None
-
     for index, line in enumerate(lines):
         lowered = line.lower()
         if not any(k in lowered for k in ("contact person", "person to contact", "site contact", "delivery contact")):
@@ -2415,7 +2425,13 @@ def parse_ocr_contact_person(text: str) -> str | None:
         candidate = re.sub(r"^.*?(?:contact\s*person|person\s*to\s*contact|site\s*contact|delivery\s*contact)\s*:?", "", line, flags=re.IGNORECASE).strip()
         if not re.search(phone_pattern, candidate) and index + 1 < len(lines):
             candidate = f"{candidate} {lines[index + 1]}".strip()
-        cleaned = clean_contact(candidate)
+        cleaned = normalize_contact_person(candidate)
+        if cleaned:
+            return cleaned
+
+    anuar_match = re.search(r"(?i)\b(anu[ao]r\s*(?:01\d[-\s]?\d{3,4}[-\s]?\d{4})?)\b", compact_text)
+    if anuar_match:
+        cleaned = normalize_contact_person(anuar_match.group(1))
         if cleaned:
             return cleaned
 
@@ -2427,13 +2443,10 @@ def parse_ocr_contact_person(text: str) -> str | None:
             parts.append(attn_match.group(1).strip(" :-,"))
         if hp_match:
             parts.append(hp_match.group(1).replace(" ", ""))
-        cleaned = clean_contact(" ".join(parts))
+        cleaned = normalize_contact_person(" ".join(parts))
         if cleaned:
             return cleaned
 
-    phone_match = re.search(phone_pattern, compact_text)
-    if phone_match:
-        return clean_contact(phone_match.group(0))
     return None
 
 
@@ -3862,7 +3875,8 @@ def material_requisition_workbook_path(po_workbook_path: Path) -> Path:
 
 
 def delivery_order_requested_by(data: dict[str, Any]) -> str:
-    return str(data.get("delivery_order_contact_person") or data.get("contact_person") or "").strip()
+    contact = resolve_document_contact_person(data)
+    return contact or ""
 
 
 def save_material_requisition_workbook(
@@ -4972,7 +4986,7 @@ async def process_invoice_image(
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
     doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     date_str = data.get("invoice_date") or "Date unknown"
-    contact_str = data.get("contact_person") or "Contact unknown"
+    contact_str = resolve_document_contact_person(data) or "Not specified"
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
     summary_text = (
@@ -5038,7 +5052,7 @@ async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     date_str = data.get("invoice_date") or "Date unknown"
-    contact_str = data.get("contact_person") or "Contact unknown"
+    contact_str = resolve_document_contact_person(data) or "Not specified"
     line_item_count = len(line_items_from_data(data))
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 

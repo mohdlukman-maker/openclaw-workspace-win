@@ -620,7 +620,7 @@ class ServiceOrderTests(unittest.TestCase):
             "order_type": "service_order",
             "invoice_date": "2026-07-24",
             "supplier_name": "TUJU GALAKSI SDN BHD",
-            "contact_person": "Azyan Nasuha",
+            "contact_person": "Anuar",
             "line_items": [
                 {"description": "Services one unit Heli forklift", "quantity": 1, "unit_price": 230},
             ],
@@ -670,7 +670,7 @@ class ServiceOrderTests(unittest.TestCase):
         data = {
             "tax_invoice": "TG-K09124",
             "invoice_date": "2026-07-24",
-            "contact_person": "Azyan Nasuha",
+            "contact_person": "Anuar",
             "service_description": "Services one unit Heli forklift at HPJ",
             "so_number": "BFE/SO/TUJU/AN/0726/012",
             "supplier_name": "TUJU GALAKSI SDN BHD",
@@ -704,7 +704,7 @@ class ServiceOrderTests(unittest.TestCase):
             self.assertEqual(ws["G28"].value, 23.4)
             self.assertEqual(ws["H28"].value, 23.4)
             self.assertEqual(ws["H51"].value, "=SUM(H27:H50)")
-            self.assertIn("Azyan Nasuha", str(ws["G62"].value))
+            self.assertIn("Anuar", str(ws["G62"].value))
 
 
 class PDFConversionTests(unittest.TestCase):
