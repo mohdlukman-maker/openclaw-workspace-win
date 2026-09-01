@@ -5363,8 +5363,9 @@ async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TY
         telegram_file = await context.bot.get_file(update.message.document.file_id)
         await telegram_file.download_to_drive(custom_path=file_path)
         if is_pdf:
-            image_path = IMAGE_DIR / f"{invoice_id}.png"
-            await asyncio.to_thread(convert_pdf_to_image, file_path, image_path)
+            image_path = await asyncio.to_thread(convert_pdf_to_image, file_path, IMAGE_DIR / f"{invoice_id}.png")
+            if not image_path.exists():
+                image_path = file_path
             await registration_flow.handle_registration_file(update, context, image_path)
         else:
             await registration_flow.handle_registration_file(update, context, file_path)
@@ -5380,8 +5381,9 @@ async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TY
         telegram_file = await context.bot.get_file(update.message.document.file_id)
         await telegram_file.download_to_drive(custom_path=file_path)
         if is_pdf:
-            image_path = IMAGE_DIR / f"{invoice_id}.png"
-            await asyncio.to_thread(convert_pdf_to_image, file_path, image_path)
+            image_path = await asyncio.to_thread(convert_pdf_to_image, file_path, IMAGE_DIR / f"{invoice_id}.png")
+            if not image_path.exists():
+                image_path = file_path
             handled = await profile_management.handle_test_file(update, context, image_path)
         else:
             handled = await profile_management.handle_test_file(update, context, file_path)
@@ -5398,8 +5400,9 @@ async def handle_other_document(update: Update, context: ContextTypes.DEFAULT_TY
         telegram_file = await context.bot.get_file(update.message.document.file_id)
         await telegram_file.download_to_drive(custom_path=pdf_path)
         source_image_hash = file_sha256(pdf_path)
-        image_path = IMAGE_DIR / f"{invoice_id}.png"
-        await asyncio.to_thread(convert_pdf_to_image, pdf_path, image_path)
+        image_path = await asyncio.to_thread(convert_pdf_to_image, pdf_path, IMAGE_DIR / f"{invoice_id}.png")
+        if not image_path.exists():
+            image_path = pdf_path
     else:
         suffix = file_ext or ".jpg"
         image_path = IMAGE_DIR / f"{invoice_id}{suffix}"
