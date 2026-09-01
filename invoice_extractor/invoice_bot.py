@@ -3155,20 +3155,51 @@ def format_item_review(data: dict[str, Any]) -> str:
         quantity = format_line_item_value(format_quantity_with_unit(item))
         unit_price = format_line_item_value(item.get("unit_price"))
         line_total = format_line_item_value(item.get("line_total"))
-        lines.append(f"{item_no}. {description} | Qty: {quantity} | Unit price: {unit_price} | Amount: {line_total}")
+        if unit_price != "-" and line_total != "-":
+            lines.append(f"• {description}\n  Qty: {quantity}  |  Price: RM {unit_price}  |  Total: RM {line_total}")
+        else:
+            lines.append(f"• {description}\n  Qty: {quantity}")
 
-    return "\n".join(lines) if lines else "No valid line items were extracted."
+    return "\n\n".join(lines) if lines else "No valid line items were extracted."
 
 
-async def reply_long_text(update: Update, text: str) -> None:
-    if not update.message:
+def get_update_message(update: Update):
+    if update.message:
+        return update.message
+    if update.callback_query and update.callback_query.message:
+        return update.callback_query.message
+    return None
+
+
+def review_action_keyboard(is_test: bool = False) -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("💾 Save & Generate PO", callback_data="btn_save"),
+        ],
+        [
+            InlineKeyboardButton("📋 Review Items", callback_data="btn_review"),
+            InlineKeyboardButton("❌ Discard", callback_data="btn_cancel"),
+        ],
+    ]
+    if is_test:
+        keyboard.insert(1, [InlineKeyboardButton("📁 Save Official Record", callback_data="btn_saverecord")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def reply_long_text(
+    update: Update,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> None:
+    message = get_update_message(update)
+    if not message:
         return
 
     max_length = 3900
     remaining = text
     while remaining:
         if len(remaining) <= max_length:
-            await safe_reply_text(update, remaining, "long reply")
+            await safe_reply_text(update, remaining, "long reply", reply_markup=reply_markup)
             return
         split_at = remaining.rfind("\n", 0, max_length)
         if split_at <= 0:
@@ -3177,12 +3208,19 @@ async def reply_long_text(update: Update, text: str) -> None:
         remaining = remaining[split_at:].lstrip()
 
 
-async def safe_reply_text(update: Update, text: str, label: str) -> bool:
-    if not update.message:
+async def safe_reply_text(
+    update: Update,
+    text: str,
+    label: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> bool:
+    message = get_update_message(update)
+    if not message:
         return False
     try:
-        await update.message.reply_text(
+        await message.reply_text(
             text,
+            reply_markup=reply_markup,
             connect_timeout=15,
             read_timeout=45,
             write_timeout=45,
@@ -4469,108 +4507,130 @@ async def process_invoice_image(
 
     if not paired_data and not is_standalone:
         missing = pending_missing_document_types(pending)
-        next_needed = document_type_label(missing[0]) if missing else "other document"
+        next_needed = document_type_label(missing[0]) if missing else "matching document"
         is_album = bool(update.message and update.message.media_group_id)
 
         if is_album:
             await safe_reply_text(
                 update,
-                f"📄 {document_type_label(document_type)} ({tax_invoice}) processed. Combining with matching album document...",
+                f"📥 {document_type_label(document_type)} ({tax_invoice}) received. Merging with matching album document...",
                 "album document acknowledgement",
             )
             return
 
-        await safe_reply_text(
-            update,
-            (
-                f"{document_type_label(document_type)} extracted and stored.\n"
-                f"D.O / Invoice No: {tax_invoice}\n"
-                f"Date: {data.get('invoice_date') or 'date unknown'}\n"
-                f"Contact: {data.get('contact_person') or 'contact unknown'}\n"
-                f"Line items found: {line_item_count}\n\n"
-                f"Now send the matching {next_needed} image. I will compare both documents before creating the P.O."
-            ),
-            "single document extraction summary",
+        supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
+        date_str = data.get("invoice_date") or "Date unknown"
+        contact_str = data.get("contact_person") or "Contact unknown"
+
+        single_summary = (
+            f"📄 *{document_type_label(document_type)} Extracted*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• *Supplier:* {supplier_title}\n"
+            f"• *Document No:* `{tax_invoice}`\n"
+            f"• *Date:* {date_str}\n"
+            f"• *Contact:* {contact_str}\n"
+            f"• *Line Items:* {line_item_count}\n\n"
+            f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
+            f"⏳ *Next Step:* Please upload the matching *{next_needed}* photo to generate the Purchase Order."
         )
-        await reply_long_text(update, f"Extracted {document_type_label(document_type)} items:\n{format_item_review(data)}")
+        await safe_reply_text(update, single_summary, "single document extraction summary")
         return
 
     data = paired_data or data
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     line_item_count = len(line_items_from_data(data))
 
-    if is_standalone:
-        supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
-        await safe_reply_text(
-            update,
-            (
-                f"{document_type_label(document_type)} ready for review.\n\n"
-                f"Supplier: {supplier_title}\n"
-                f"Ref / No: {tax_invoice}\n"
-                f"Date: {data.get('invoice_date') or 'date unknown'}\n"
-                f"Contact: {data.get('contact_person') or 'contact unknown'}\n"
-                f"Line items found: {line_item_count}"
-            ),
-            "standalone extraction summary",
-        )
-    else:
-        await safe_reply_text(
-            update,
-            f"D.O + Invoice pair ready for review.\n{pending_pair_summary(pending)}\n\nMatched No: {tax_invoice}\nP.O date source: {data.get('invoice_date') or 'date unknown'}\nContact: {data.get('contact_person') or 'contact unknown'}\nP.O line items found: {line_item_count}",
-            "extraction summary",
-        )
+    supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
+    doc_label = "Quotation" if is_standalone else "D.O + Invoice Pair"
+    date_str = data.get("invoice_date") or "Date unknown"
+    contact_str = data.get("contact_person") or "Contact unknown"
 
-    await reply_long_text(update, format_review_warnings(data))
-    await reply_long_text(update, f"Extracted items:\n{format_item_review(data)}")
-    record_instruction = (
-        " This sender is treated as testing by default; use /saverecord only when this document should become an official record."
-        if data.get("record_type") == "test"
-        else ""
+    summary_text = (
+        f"📋 *{doc_label} Ready for Review*\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"• *Supplier:* {supplier_title}\n"
+        f"• *Reference No:* `{tax_invoice}`\n"
+        f"• *PO Date:* {date_str}\n"
+        f"• *Attention:* {contact_str}\n"
+        f"• *Total Items:* {line_item_count}\n\n"
+        f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
+        f"Please review the items above and tap *Save & Generate PO* below to proceed."
     )
+
+    is_test = data.get("record_type") == "test"
+    keyboard = review_action_keyboard(is_test=is_test)
+
+    warnings_text = format_review_warnings(data)
+    if warnings_text and "No critical issues" not in warnings_text:
+        await safe_reply_text(update, f"⚠️ *Notes:*\n{warnings_text}", "review warnings")
+
     source_instruction = pair_item_source_instruction(data) if not is_standalone else ""
     if source_instruction:
         await safe_reply_text(update, source_instruction, "item source instructions")
-    else:
-        await safe_reply_text(
-            update,
-            "Check the item numbers and descriptions above. Send /save to write this document to Excel, /review to show the list again, or /cancel to discard it."
-            + record_instruction,
-            "review instructions",
-        )
+
+    await safe_reply_text(update, summary_text, "document review summary", reply_markup=keyboard)
 
 
 async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not get_update_message(update):
         return
     if not await is_authorized(update):
         return
 
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending:
-        await safe_reply_text(update, "No document is waiting for review. Send a D.O photo first.", "empty review notice")
+        await safe_reply_text(update, "ℹ️ No document is currently waiting for review. Send a D.O or Quotation photo first.", "empty review notice")
         return
 
     data = pending_review_data(pending)
     if not data:
         await safe_reply_text(
             update,
-            "I have one document stored, but the pair is not complete yet.\n" + pending_pair_summary(pending),
+            "ℹ️ I have one document stored, waiting for the matching pair to complete the review.\n" + pending_pair_summary(pending),
             "partial pair review notice",
         )
         return
-    await reply_long_text(update, "Pair summary:\n" + pending_pair_summary(pending))
-    await reply_long_text(update, format_review_warnings(data))
-    await reply_long_text(update, f"Extracted items:\n{format_item_review(data)}")
-    record_instruction = (
-        " This sender is treated as testing by default; use /saverecord only when this document should become an official record."
-        if data.get("record_type") == "test"
-        else ""
+
+    supplier_profile = data.get("supplier_profile") or suppliers.detect_supplier_profile(
+        data, configured_default_supplier(), configured_supplier_aliases()
     )
-    source_instruction = pair_item_source_instruction(data)
+    document_type = normalize_document_type(data)
+    is_standalone = (
+        document_type in (DOCUMENT_TYPE_QUOTATION, DOCUMENT_TYPE_CASH_BILL)
+        or supplier_profile.get("category") == "TECH"
+        or "walihin" in str(supplier_profile.get("display_name", "")).lower()
+    )
+    supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
+    doc_label = "Quotation" if is_standalone else "D.O + Invoice Pair"
+    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
+    date_str = data.get("invoice_date") or "Date unknown"
+    contact_str = data.get("contact_person") or "Contact unknown"
+    line_item_count = len(line_items_from_data(data))
+
+    summary_text = (
+        f"📋 *{doc_label} Review*\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"• *Supplier:* {supplier_title}\n"
+        f"• *Reference No:* `{tax_invoice}`\n"
+        f"• *PO Date:* {date_str}\n"
+        f"• *Attention:* {contact_str}\n"
+        f"• *Total Items:* {line_item_count}\n\n"
+        f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
+        f"Tap *Save & Generate PO* below to confirm."
+    )
+
+    is_test = data.get("record_type") == "test"
+    keyboard = review_action_keyboard(is_test=is_test)
+
+    warnings_text = format_review_warnings(data)
+    if warnings_text and "No critical issues" not in warnings_text:
+        await safe_reply_text(update, f"⚠️ *Notes:*\n{warnings_text}", "review warnings")
+
+    source_instruction = pair_item_source_instruction(data) if not is_standalone else ""
     if source_instruction:
         await safe_reply_text(update, source_instruction, "item source instructions")
-    else:
-        await safe_reply_text(update, "Send /save to write it to Excel or /cancel to discard it." + record_instruction, "review instructions")
+
+    await safe_reply_text(update, summary_text, "document review summary", reply_markup=keyboard)
 
 
 async def choose_pair_item_source(
@@ -4627,21 +4687,25 @@ async def save_pending_with_mode(
     force_record: bool = False,
     manual_running_number: int | None = None,
 ) -> None:
-    if not update.message:
+    message = get_update_message(update)
+    if not message:
         return
     if not await is_authorized(update):
         return
 
-    pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    pending = get_pending_review(context, chat_id)
     if not pending:
-        await update.message.reply_text("No document is waiting for saving. Send a D.O photo and matching invoice photo first.")
+        await safe_reply_text(update, "ℹ️ No document is waiting to be saved. Please upload your document photo first.", "empty save notice")
         return
 
     if not pending_review_data(pending):
-        await update.message.reply_text(
-            "The P.O pair is not complete yet.\n"
+        await safe_reply_text(
+            update,
+            "ℹ️ The document pair is not complete yet.\n"
             + pending_pair_summary(pending)
-            + "\n\nSend the missing D.O or invoice image before /save."
+            + "\n\nPlease send the missing D.O or invoice image before saving.",
+            "incomplete pair save notice",
         )
         return
 
@@ -4666,9 +4730,8 @@ async def save_pending_with_mode(
                 await safe_reply_text(
                     update,
                     (
-                        f"P.O running number {manual_running_number:04d} is already used for "
-                        f"{month_name} {data['record_type']} invoices. Send /editnothensave again with another number, "
-                        "or use /save for the next automatic number."
+                        f"⚠️ P.O running number {manual_running_number:04d} is already used for "
+                        f"{month_name} {data['record_type']} invoices. Please try another number."
                     ),
                     "manual running number collision notice",
                 )
@@ -4712,10 +4775,10 @@ async def save_pending_with_mode(
                     str(pending["invoice_id"]),
                     force_record,
                 )
-        )
+            )
         await safe_reply_text(
             update,
-            user_facing_error(exc) + " I will also keep checking automatically for about 15 minutes.",
+            user_facing_error(exc) + " Automatic retries are active.",
             "workbook locked notice",
         )
         return
@@ -4730,36 +4793,27 @@ async def save_pending_with_mode(
         return
 
     clear_pending_review(context, update.effective_chat.id if update.effective_chat else None)
-    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or "number unknown"
+    tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     line_item_count = len(line_items_from_data(data))
-    record_label = "Testing invoice" if data.get("record_type") == "test" else "Recorded invoice"
-    pdf_line = f"PDF: {pdf_path.name if pdf_path else 'PDF export disabled'}"
-    if pdf_error:
-        pdf_line = f"PDF export failed: {pdf_error}"
-    mr_line = f"MR: {mr_path.name if mr_path else 'not created'}"
-    if mr_pdf_path:
-        mr_line += f"\nMR PDF: {mr_pdf_path.name}"
-    if mr_error:
-        mr_line += f"\nMR issue: {mr_error}"
-    procurement_line = f"Procurement folder: {procurement_folder}"
-    if procurement_issues:
-        procurement_line += "\nProcurement issues: " + "; ".join(procurement_issues)
+
     logging.info("Saved reviewed invoice %s to %s; sending confirmation", invoice_id, target_path)
     await safe_reply_text(
         update,
         (
-            f"Saved document.\nType: {record_label}\nD.O / Invoice No: {tax_invoice}\n"
-            f"File: {target_path.name}\n{pdf_line}\n{mr_line}\n{procurement_line}\n"
-            f"Extracted line items: {line_item_count}\nRows saved: {saved_count}\n"
-            "Sending a copy of the saved file(s) now."
+            f"✅ *Purchase Order & MR Generated!*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"• *Document No:* `{tax_invoice}`\n"
+            f"• *PO File:* `{target_path.name}`\n"
+            f"• *Line Items Saved:* {saved_count}\n\n"
+            f"📦 *Your files are ready below:*"
         ),
         "saved invoice confirmation",
     )
-    sender_chat_id = int(pending.get("submitter_chat_id") or update.effective_chat.id)
+    sender_chat_id = int(pending.get("submitter_chat_id") or (update.effective_chat.id if update.effective_chat else 0))
     files_to_send = [target_path] + ([pdf_path] if pdf_path else []) + ([mr_path] if mr_path else []) + ([mr_pdf_path] if mr_pdf_path else [])
     sent_files = await send_saved_invoice_files(context.application, sender_chat_id, files_to_send)
     if not sent_files:
-        await safe_reply_text(update, "Saved successfully, but I could not send the generated file copy.", "saved file send failure notice")
+        await safe_reply_text(update, "Saved successfully to server, but could not deliver the file copy in chat.", "saved file send failure notice")
 
 
 async def save_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -4775,47 +4829,49 @@ async def save_all_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def edit_number_then_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not get_update_message(update):
         return
     if not await is_authorized(update):
         return
 
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending or not pending_review_data(pending):
-        await update.message.reply_text("No completed D.O + invoice pair is waiting. Send both images first.")
+        await safe_reply_text(update, "ℹ️ No completed D.O + invoice pair is waiting. Send both images first.", "edit number notice")
         return
 
     raw_number = " ".join(context.args or []).strip()
     if not raw_number:
         context.chat_data[EDIT_PO_RUNNING_NUMBER_KEY] = {"force_record": False}
-        await update.message.reply_text("Send the P.O running number to use, for example 7 or 0007. Send /cancel to stop.")
+        await safe_reply_text(update, "Send the P.O running number to use, for example 7 or 0007. Send /cancel to stop.", "edit number prompt")
         return
 
     running_number = parse_po_running_number(raw_number)
     if running_number is None:
-        await update.message.reply_text("Use a positive running number, for example /editnothensave 7 or /editnothensave 0007.")
+        await safe_reply_text(update, "Use a positive running number, for example /editnothensave 7 or /editnothensave 0007.", "invalid running number")
         return
 
     await save_pending_with_mode(update, context, force_all=False, force_record=False, manual_running_number=running_number)
 
 
 async def save_with_custom_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not get_update_message(update):
         return
     if not await is_authorized(update):
         return
 
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending or not pending_review_data(pending):
-        await update.message.reply_text("No completed D.O + invoice pair is waiting. Send both images first.")
+        await safe_reply_text(update, "ℹ️ No completed D.O + invoice pair is waiting. Send both images first.", "custom name notice")
         return
 
     raw_name = " ".join(context.args or []).strip()
     if not raw_name:
         context.chat_data[SAVE_WITH_CUSTOM_NAME_KEY] = {"force_record": False}
-        await update.message.reply_text(
+        await safe_reply_text(
+            update,
             "Send the custom filename to use for this invoice, for example: \"BFE PO TUJU JULY 9999\"\n"
-            "The filename will be used as-is (with .xlsx appended). Send /cancel to stop."
+            "The filename will be used as-is (with .xlsx appended). Send /cancel to stop.",
+            "custom name prompt",
         )
         return
 
@@ -4827,7 +4883,7 @@ async def _do_save_with_custom_name(
 ) -> None:
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending or not pending_review_data(pending):
-        await update.message.reply_text("No completed D.O + invoice pair is waiting. Send both images first.")
+        await safe_reply_text(update, "ℹ️ No completed D.O + invoice pair is waiting. Send both images first.", "custom name notice")
         return
 
     # Override the output stem with the custom name
@@ -4838,7 +4894,7 @@ async def _do_save_with_custom_name(
 
 
 async def cancel_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message:
+    if not get_update_message(update):
         return
     if not await is_authorized(update):
         return
@@ -4847,12 +4903,39 @@ async def cancel_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending:
-        await update.message.reply_text("No document is waiting for review.")
+        await safe_reply_text(update, "ℹ️ No document is currently waiting for review.", "cancel empty notice")
         return
 
     invoice_id = pending.get("invoice_id", "unknown")
     clear_pending_review(context, update.effective_chat.id if update.effective_chat else None)
-    await update.message.reply_text(f"Discarded pending document/pair {invoice_id}. You can send a new D.O + invoice pair now.")
+    await safe_reply_text(
+        update,
+        f"🗑️ *Document Discarded*\n━━━━━━━━━━━━━━━━━━━\nPending document `{invoice_id}` has been discarded. You can upload new documents at any time.",
+        "cancel confirmation",
+    )
+
+
+async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    if not await is_authorized(update):
+        await query.answer("Unauthorized.", show_alert=True)
+        return
+
+    data = query.data or ""
+    if data == "btn_save":
+        await query.answer("Generating Purchase Order & MR...", show_alert=False)
+        await save_pending_with_mode(update, context, force_all=False)
+    elif data == "btn_saverecord":
+        await query.answer("Saving Official Record...", show_alert=False)
+        await save_pending_with_mode(update, context, force_all=False, force_record=True)
+    elif data == "btn_review":
+        await query.answer()
+        await review_pending(update, context)
+    elif data == "btn_cancel":
+        await query.answer("Discarded.")
+        await cancel_pending(update, context)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5264,6 +5347,7 @@ def build_application(token: str) -> Application:
     application.add_handler(MessageHandler(filters.Document.IMAGE, handle_document_image))
     application.add_handler(MessageHandler(filters.Document.ALL & ~filters.Document.IMAGE, handle_other_document))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    application.add_handler(CallbackQueryHandler(handle_action_callback, pattern="^btn_"))
     application.add_handler(CallbackQueryHandler(registration_flow.registration_callback, pattern="^reg_"))
     application.add_error_handler(on_error)
     return application
