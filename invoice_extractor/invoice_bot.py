@@ -357,7 +357,7 @@ Extract full supplier address into supplier_address.
 Extract supplier telephone/fax/mobile into supplier_phone.
 Extract supplier email into supplier_email.
 Extract supplier bank details into supplier_bank_account if visible.
-Extract the site/delivery contact person name and phone number into contact_person. On Delivery Orders (such as TUJU GALAKSI), the contact person is written under "Delivery Address" in the right-hand box (e.g. "Contact Person : Anuar 017-6909201" or "Anuor 017-6909201") or bottom "Received by". You MUST extract this site contact person (e.g. "Anuar 017-6909201"). Do NOT return null if a site contact is present. Do NOT extract billing "Attn: Azyan Nasuha" or office phone "016-8873726".
+Extract the site/delivery contact person name and phone number into contact_person. On Delivery Orders (such as TUJU GALAKSI), the contact person is written under "Delivery Address" in the right-hand box (e.g. "Contact Person : Anuar 017-6909201" or "Anuor 017-6909201") or bottom "Received by". You MUST extract this site contact person (e.g. "Anuar 017-6909201"). Do NOT return null if a site contact is present. NEVER extract the billing contact "Azyan Nasuha", "Aryan Nasuha", "Nasuha", or office phone "016-8873726".
 Do not invent document numbers, dates, contact details, item details, prices, or amounts that are not visible.
 Never use a phone number, fax number, address number, quantity, amount, or line-item number as tax_invoice or invoice_date."""
 
@@ -374,7 +374,7 @@ Important extraction rules:
 - Extract supplier/vendor header name, address, telephone/fax, email, and bank account if present.
 - Extract document reference numbers: Invoice No into tax_invoice, and D.O No into delivery_order.
 - Extract date in YYYY-MM-DD format into invoice_date. For dates printed as DD-MM-YYYY or DD.MM.YYYY, interpret as Day-Month-Year.
-- Extract contact person name and phone number into contact_person. On Delivery Orders, ALWAYS extract the contact from the "Delivery Address" section on the right (e.g. "Contact Person: Anuar 017-6909201") or "Received by" signature. Never extract the billing "Attn: Azyan Nasuha" or telephone "016-8873726".
+- Extract contact person name and phone number into contact_person. On Delivery Orders, ALWAYS extract the contact from the "Delivery Address" section on the right (e.g. "Contact Person: Anuar 017-6909201") or "Received by" signature. Never extract the billing contact ("Azyan Nasuha", "Aryan Nasuha", "Nasuha") or telephone "016-8873726".
 - Treat the line items/products as a row-by-row transcription task.
 - Capture every product/item row with full description, quantity, quantity unit, unit price, and line total.
 - For items like "Diesel 1600 Lts 4.96 per lts", line_total is 1600 * 4.96 = 7936.00.
@@ -2366,12 +2366,13 @@ def normalize_contact_person(value: Any) -> str | None:
         return None
     if not re.search(r"[a-zA-Z]", text):
         return None
-    if "azyan" in text.lower() or "8873726" in text:
+    lowered = text.lower()
+    if any(k in lowered for k in ("azyan", "nasuha", "aryan", "borneo", "8873726")):
         return None
-    if any(w in text.lower() for w in ("not visible", "not specified", "not available", "unspecified", "none", "unknown", "mentioned", "nil", "n/a", "no contact")):
+    if any(w in lowered for w in ("not visible", "not specified", "not available", "unspecified", "none", "unknown", "mentioned", "nil", "n/a", "no contact")):
         return None
     text = re.sub(r"(?i)\banuor\b", "Anuar", text)
-    text = re.sub(r"\b(?:tel|fax|h/?p|hp|attn|contact person|person to contact|site contact|delivery contact)\b\s*:?", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b(?:tel|fax|h/?p|hp|w/?p|wp|attn|contact person|person to contact|site contact|delivery contact)\b\s*:?", "", text, flags=re.IGNORECASE)
     text = re.sub(r"[^A-Za-z0-9+()'/@.,& -]+", " ", text)
     text = re.sub(r"^(?:[A-Za-z]\s*[:.-]?\s+)+(?=[A-Z][a-z])", "", text).strip(" :-,")
     text = " ".join(text.split()).strip(" :-,")
@@ -2984,6 +2985,24 @@ async def is_authorized(update: Update) -> bool:
     return False
 
 
+def optimize_image_bytes_for_ai(image_path: Path, max_dim: int = 1800, quality: int = 85) -> tuple[bytes, str]:
+    if image_path.suffix.lower() == ".pdf":
+        return image_path.read_bytes(), "application/pdf"
+    try:
+        with Image.open(image_path) as img:
+            img = ImageOps.exif_transpose(img)
+            if max(img.size) > max_dim:
+                scale = max_dim / max(img.size)
+                img = img.resize((int(img.width * scale), int(img.height * scale)), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
+            return buf.getvalue(), "image/jpeg"
+    except Exception:
+        ext = image_path.suffix.lower()
+        mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+        return image_path.read_bytes(), mime
+
+
 async def extract_invoice_gemini(
     image_paths: list[Path],
     prompt_text: str,
@@ -3004,16 +3023,7 @@ async def extract_invoice_gemini(
 
     contents: list[Any] = []
     for candidate_path in image_paths:
-        encoded_bytes = candidate_path.read_bytes()
-        ext = candidate_path.suffix.lower()
-        if ext == ".pdf":
-            mime = "application/pdf"
-        elif ext == ".png":
-            mime = "image/png"
-        elif ext == ".webp":
-            mime = "image/webp"
-        else:
-            mime = "image/jpeg"
+        encoded_bytes, mime = optimize_image_bytes_for_ai(candidate_path)
         contents.append(types.Part.from_bytes(data=encoded_bytes, mime_type=mime))
     contents.append(prompt_text)
 
@@ -3090,12 +3100,13 @@ async def extract_invoice_openai(
 
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
     for candidate_path in image_paths:
-        encoded = base64.b64encode(candidate_path.read_bytes()).decode("ascii")
+        encoded_bytes, mime = optimize_image_bytes_for_ai(candidate_path)
+        encoded = base64.b64encode(encoded_bytes).decode("ascii")
         content.append(
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/jpeg;base64,{encoded}",
+                    "url": f"data:{mime};base64,{encoded}",
                     "detail": "high",
                 },
             }
