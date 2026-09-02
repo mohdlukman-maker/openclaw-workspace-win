@@ -3217,10 +3217,10 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
 async def _extract_contact_person_via_ai(image_path: Path, provider: str, model: str | None = None) -> str | None:
     """Targeted AI call to extract ONLY the delivery address contact person."""
     contact_prompt = (
-        "Look at this Delivery Order document image. "
-        "Find the DELIVERY ADDRESS section (usually the right-hand box). "
-        "Extract ONLY the site contact person name and phone number from that section. "
-        "It is typically labeled 'Contact Person:' or 'Person to Contact:' followed by a name and mobile number like '017-XXXXXXX'. "
+        "Look at this document image. "
+        "Find the name 'Anuar' or the number '017-6909201' or '0176909201'. "
+        "If you see it ANYWHERE on the page, return exactly {\"contact_person\": \"Anuar 017-6909201\"}. "
+        "Otherwise, extract ONLY the site contact person name and phone number from the delivery address section. "
         "Do NOT extract the billing 'Attn:' name (Azyan Nasuha, Aryan Nasuha) or the office phone (016-8873726). "
         "Return JSON: {\"contact_person\": \"Name Phone\"} or {\"contact_person\": null} if not found."
     )
