@@ -3153,7 +3153,7 @@ def extract_contact_person_from_image(image_path: Path, max_dim: int = 900) -> s
                 try:
                     full_text, _ = ocr_single_text_and_confidence(temp_path)
                     parsed = parse_ocr_contact_person(full_text)
-                    if parsed and "azyan" not in parsed.lower():
+                    if parsed and not any(k in parsed.lower() for k in ("azyan", "aryan", "nasuha")):
                         _IMAGE_CONTACT_CACHE[cache_key] = parsed
                         return parsed
                 finally:
@@ -3196,17 +3196,50 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
     validate_ai_extraction(data)
     doc_type = normalize_document_type(data)
     if doc_type != DOCUMENT_TYPE_INVOICE and not normalize_contact_person(data.get("contact_person")):
+        # First try: targeted AI re-extraction for the delivery contact
         try:
-            local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
-            if local_contact:
-                data["contact_person"] = local_contact
-                data["delivery_order_contact_person"] = local_contact
+            ai_contact = await _extract_contact_person_via_ai(image_path, provider, model)
+            if ai_contact:
+                data["contact_person"] = ai_contact
+                data["delivery_order_contact_person"] = ai_contact
         except Exception:
             pass
+        # Second try: Tesseract OCR fallback
+        if not normalize_contact_person(data.get("contact_person")):
+            try:
+                local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
+                if local_contact:
+                    data["contact_person"] = local_contact
+                    data["delivery_order_contact_person"] = local_contact
+            except Exception:
+                pass
     if "TUJU focused" in image_note:
         data["extraction_profile"] = "tuju_focused"
     return data
 
+
+async def _extract_contact_person_via_ai(image_path: Path, provider: str, model: str | None = None) -> str | None:
+    """Targeted AI call to extract ONLY the delivery address contact person."""
+    contact_prompt = (
+        "Look at this Delivery Order document image. "
+        "Find the DELIVERY ADDRESS section (usually the right-hand box). "
+        "Extract ONLY the site contact person name and phone number from that section. "
+        "It is typically labeled 'Contact Person:' or 'Person to Contact:' followed by a name and mobile number like '017-XXXXXXX'. "
+        "Do NOT extract the billing 'Attn:' name (Azyan Nasuha, Aryan Nasuha) or the office phone (016-8873726). "
+        "Return JSON: {\"contact_person\": \"Name Phone\"} or {\"contact_person\": null} if not found."
+    )
+    try:
+        if provider == "gemini":
+            target_model = model or gemini_model_name()
+            result = await extract_invoice_gemini([image_path], contact_prompt, target_model, "Extract delivery contact person only.")
+        else:
+            target_model = model or openai_model_name()
+            result = await extract_invoice_openai([image_path], contact_prompt, target_model, "Extract delivery contact person only.")
+        raw = result.get("contact_person")
+        return normalize_contact_person(raw)
+    except Exception as exc:
+        logging.warning("Targeted AI contact extraction failed: %s", exc)
+        return None
 
 async def reconcile_invoice_extraction(
     image_path: Path,
