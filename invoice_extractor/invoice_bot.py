@@ -50,6 +50,7 @@ DEFAULT_INVOICE_WORKBOOK_DIR = DATA_DIR / "invoices"
 PENDING_REVIEW_KEY = "pending_invoice_review"
 EDIT_PO_RUNNING_NUMBER_KEY = "edit_po_running_number"
 SAVE_WITH_CUSTOM_NAME_KEY = "save_with_custom_name"
+EDIT_FIELD_KEY = "edit_field_state"
 DOCUMENT_TYPE_DELIVERY_ORDER = "delivery_order"
 DOCUMENT_TYPE_INVOICE = "invoice"
 DOCUMENT_TYPE_QUOTATION = "quotation"
@@ -3509,13 +3510,48 @@ def review_action_keyboard(is_test: bool = False, is_so: bool = False) -> Inline
             InlineKeyboardButton(save_label, callback_data="btn_save"),
         ],
         [
-            InlineKeyboardButton("📋 Review Items", callback_data="btn_review"),
+            InlineKeyboardButton("✏️ Edit / Review Data", callback_data="btn_edit_menu"),
             InlineKeyboardButton("❌ Discard", callback_data="btn_cancel"),
         ],
     ]
     if is_test:
         rec_label = "📁 Save Official SO Record" if is_so else "📁 Save Official Record"
         keyboard.insert(1, [InlineKeyboardButton(rec_label, callback_data="btn_saverecord")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def edit_menu_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("👤 Contact / Attn", callback_data="btn_edit_contact"),
+            InlineKeyboardButton("🔢 Ref / DO No", callback_data="btn_edit_ref"),
+        ],
+        [
+            InlineKeyboardButton("📅 Date", callback_data="btn_edit_date"),
+            InlineKeyboardButton("🏢 Supplier", callback_data="btn_edit_supplier"),
+        ],
+        [
+            InlineKeyboardButton("📦 Edit Line Items", callback_data="btn_edit_items"),
+        ],
+        [
+            InlineKeyboardButton("⬅️ Back to Review", callback_data="btn_edit_back"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def edit_line_items_keyboard(items: list[dict[str, Any]]) -> InlineKeyboardMarkup:
+    keyboard: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for idx, _ in enumerate(items[:10], start=1):
+        row.append(InlineKeyboardButton(f"✏️ Item {idx}", callback_data=f"btn_edit_item_{idx}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("➕ Add New Item", callback_data="btn_edit_add_item")])
+    keyboard.append([InlineKeyboardButton("⬅️ Back to Edit Menu", callback_data="btn_edit_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -5495,6 +5531,218 @@ async def _do_save_with_custom_name(
     await save_pending_with_mode(update, context, force_all=False, force_record=force_record, manual_running_number=None)
 
 
+def apply_manual_edit(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: Any,
+    edit_field: dict[str, Any],
+    new_value: str,
+) -> tuple[bool, str]:
+    pending = get_pending_review(context, chat_id)
+    if not pending:
+        return False, "No pending document is waiting for review."
+
+    data = pending.get("data")
+    if not isinstance(data, dict):
+        return False, "Pending document has no data."
+
+    field = edit_field.get("field")
+    if field == "contact":
+        clean_contact = normalize_contact_person(new_value) or new_value.strip()
+        data["contact_person"] = clean_contact
+        data["delivery_order_contact_person"] = clean_contact
+        msg = f"Contact Person updated to: *{clean_contact}*"
+
+    elif field in ("ref", "no"):
+        clean_ref = new_value.strip()
+        data["tax_invoice"] = clean_ref
+        data["invoice_number"] = clean_ref
+        data["delivery_order_no"] = clean_ref
+        data["delivery_order"] = clean_ref
+        msg = f"Reference / D.O Number updated to: `{clean_ref}`"
+
+    elif field == "date":
+        clean_date = new_value.strip()
+        data["invoice_date"] = clean_date
+        data["delivery_order_date"] = clean_date
+        msg = f"Document Date updated to: *{clean_date}*"
+
+    elif field == "supplier":
+        clean_supplier = new_value.strip()
+        data["supplier_name"] = clean_supplier
+        data["display_name"] = clean_supplier
+        msg = f"Supplier updated to: *{clean_supplier}*"
+
+    elif field == "item":
+        idx = edit_field.get("index", 1)
+        items = data.get("line_items") or []
+        if not (1 <= idx <= len(items)):
+            return False, f"Item number {idx} is out of range (1 to {len(items)})."
+
+        if new_value.strip().lower() in ("delete", "remove", "del"):
+            removed = items.pop(idx - 1)
+            repair_line_item_arithmetic(data)
+            msg = f"Removed item {idx}: *{removed.get('description', '')}*"
+        else:
+            it = items[idx - 1]
+            parts = [p.strip() for p in new_value.split(",") if p.strip()]
+            if len(parts) == 1:
+                val = parts[0]
+                qty_match = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$", val)
+                if qty_match:
+                    it["quantity"] = float(qty_match.group(1)) if "." in qty_match.group(1) else int(qty_match.group(1))
+                    if qty_match.group(2):
+                        it["unit"] = qty_match.group(2)
+                elif re.match(r"^(?:RM\s*)?(\d+(?:\.\d+)?)$", val, re.IGNORECASE):
+                    p_match = re.match(r"^(?:RM\s*)?(\d+(?:\.\d+)?)$", val, re.IGNORECASE)
+                    it["unit_price"] = float(p_match.group(1))
+                else:
+                    it["description"] = val
+            elif len(parts) == 2:
+                part1, part2 = parts
+                qty_match = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$", part1)
+                if qty_match:
+                    it["quantity"] = float(qty_match.group(1)) if "." in qty_match.group(1) else int(qty_match.group(1))
+                    if qty_match.group(2):
+                        it["unit"] = qty_match.group(2)
+                    p_match = re.match(r"^(?:RM\s*)?(\d+(?:\.\d+)?)$", part2, re.IGNORECASE)
+                    if p_match:
+                        it["unit_price"] = float(p_match.group(1))
+                else:
+                    it["description"] = part1
+                    qty_match2 = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$", part2)
+                    if qty_match2:
+                        it["quantity"] = float(qty_match2.group(1)) if "." in qty_match2.group(1) else int(qty_match2.group(1))
+                        if qty_match2.group(2):
+                            it["unit"] = qty_match2.group(2)
+            elif len(parts) >= 3:
+                it["description"] = parts[0]
+                qty_match = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$", parts[1])
+                if qty_match:
+                    it["quantity"] = float(qty_match.group(1)) if "." in qty_match.group(1) else int(qty_match.group(1))
+                    if qty_match.group(2):
+                        it["unit"] = qty_match.group(2)
+                p_match = re.match(r"^(?:RM\s*)?(\d+(?:\.\d+)?)$", parts[2], re.IGNORECASE)
+                if p_match:
+                    it["unit_price"] = float(p_match.group(1))
+
+            try:
+                qty = float(it.get("quantity") or 0)
+                price = float(it.get("unit_price") or 0)
+                it["amount"] = round(qty * price, 2)
+            except (ValueError, TypeError):
+                pass
+            repair_line_item_arithmetic(data)
+            msg = f"Updated Item {idx}: *{it.get('description')}* (`{it.get('quantity')} {it.get('unit', '')}` @ RM {it.get('unit_price', '0.00')})"
+
+    elif field == "add_item":
+        items = data.setdefault("line_items", [])
+        parts = [p.strip() for p in new_value.split(",") if p.strip()]
+        desc = parts[0] if parts else "New Item"
+        qty = 1
+        unit = "unit"
+        price = 0.0
+        if len(parts) >= 2:
+            qty_match = re.match(r"^(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?$", parts[1])
+            if qty_match:
+                qty = float(qty_match.group(1)) if "." in qty_match.group(1) else int(qty_match.group(1))
+                unit = qty_match.group(2) or "unit"
+        if len(parts) >= 3:
+            p_match = re.match(r"^(?:RM\s*)?(\d+(?:\.\d+)?)$", parts[2], re.IGNORECASE)
+            if p_match:
+                price = float(p_match.group(1))
+        amount = round(qty * price, 2)
+        new_item = {
+            "item_no": str(len(items) + 1),
+            "description": desc,
+            "quantity": qty,
+            "unit": unit,
+            "unit_price": price,
+            "amount": amount,
+        }
+        items.append(new_item)
+        repair_line_item_arithmetic(data)
+        msg = f"Added Item {len(items)}: *{desc}* (`{qty} {unit}` @ RM {price:.2f})"
+
+    else:
+        return False, f"Unknown field '{field}'."
+
+    context.chat_data[PENDING_REVIEW_KEY] = pending
+    chat_id_str = pending_chat_id(pending) or (str(chat_id) if chat_id else "")
+    if chat_id_str:
+        pending_store.save_pending(DATA_DIR, chat_id_str, pending)
+    return True, msg
+
+
+async def edit_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /edit <field> <value>."""
+    if not update.message:
+        return
+    if not await is_authorized(update):
+        return
+
+    args = context.args or []
+    if not args:
+        pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
+        if not pending:
+            await safe_reply_text(update, "ℹ️ No document is currently waiting for review.", "edit empty notice")
+            return
+        await safe_reply_text(
+            update,
+            "✏️ *Manual Data Correction*\n━━━━━━━━━━━━━━━━━━━\n"
+            "Select what you would like to correct:\n\n"
+            "💡 *Tip:* You can also type:\n"
+            "• `/edit contact Anuar 017-6909201`\n"
+            "• `/edit ref TG-K09183`\n"
+            "• `/edit date 01.08.2026`\n"
+            "• `/edit supplier Tuju Galaksi`\n"
+            "• `/edit item 1 5 roll, 168.00`\n"
+            "• `/edit item 1 delete`",
+            "edit menu",
+            reply_markup=edit_menu_keyboard(),
+        )
+        return
+
+    subcommand = args[0].lower()
+    value = " ".join(args[1:]).strip()
+
+    if subcommand in ("contact", "attn", "attention"):
+        field_info = {"field": "contact"}
+    elif subcommand in ("ref", "no", "number", "do", "invoice"):
+        field_info = {"field": "ref"}
+    elif subcommand == "date":
+        field_info = {"field": "date"}
+    elif subcommand in ("supplier", "vendor"):
+        field_info = {"field": "supplier"}
+    elif subcommand in ("item", "line"):
+        if len(args) < 3:
+            await safe_reply_text(update, "Format: `/edit item <number> <new value>`\nExample: `/edit item 1 5 roll, 168.00`", "edit item syntax")
+            return
+        idx_str = args[1]
+        idx = int(idx_str) if idx_str.isdigit() else 1
+        field_info = {"field": "item", "index": idx}
+        value = " ".join(args[2:]).strip()
+    elif subcommand in ("add", "additem"):
+        field_info = {"field": "add_item"}
+    else:
+        await safe_reply_text(
+            update,
+            f"Unknown edit field `{subcommand}`.\nAvailable fields: `contact`, `ref`, `date`, `supplier`, `item`.\nExample: `/edit contact Anuar 017-6909201`",
+            "edit unknown field",
+        )
+        return
+
+    if not value:
+        await safe_reply_text(update, f"Please provide a new value for `{subcommand}`.", "edit empty value")
+        return
+
+    applied, msg = apply_manual_edit(context, update.effective_chat.id if update.effective_chat else None, field_info, value)
+    if applied:
+        await safe_reply_text(update, f"✅ {msg}", "edit success notice")
+        await review_pending(update, context)
+    else:
+        await safe_reply_text(update, f"⚠️ {msg}", "edit failure notice")
+
+
 async def cancel_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not get_update_message(update):
         return
@@ -5502,6 +5750,10 @@ async def cancel_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
     context.chat_data.pop(EDIT_PO_RUNNING_NUMBER_KEY, None)
     context.chat_data.pop(SAVE_WITH_CUSTOM_NAME_KEY, None)
+    if context.chat_data.pop(EDIT_FIELD_KEY, None):
+        await safe_reply_text(update, "Editing cancelled. Here is your current document review:", "edit cancel notice")
+        await review_pending(update, context)
+        return
 
     pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
     if not pending:
@@ -5604,6 +5856,135 @@ async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif data == "btn_review":
         await query.answer()
         await review_pending(update, context)
+    elif data == "btn_edit_menu":
+        await query.answer()
+        pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
+        if not pending:
+            await query.edit_message_text("⚠️ No pending document found.")
+            return
+        await query.edit_message_text(
+            "✏️ *Manual Data Correction*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "Select what you would like to correct:\n\n"
+            "• *Contact / Attn:* Delivery site contact person & phone\n"
+            "• *Ref / DO No:* Document reference number\n"
+            "• *Date:* Document issue date\n"
+            "• *Supplier:* Supplier / Vendor name\n"
+            "• *Line Items:* Quantities, units, prices, or add/remove items\n\n"
+            "💡 *Tip:* You can also type `/edit <field> <value>` at any time.",
+            parse_mode="Markdown",
+            reply_markup=edit_menu_keyboard(),
+        )
+    elif data == "btn_edit_back":
+        await query.answer()
+        context.chat_data.pop(EDIT_FIELD_KEY, None)
+        await review_pending(update, context)
+    elif data == "btn_edit_contact":
+        await query.answer()
+        context.chat_data[EDIT_FIELD_KEY] = {"field": "contact"}
+        back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Cancel & Return", callback_data="btn_edit_back")]])
+        await query.edit_message_text(
+            "👤 *Edit Contact Person / Attention*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "Please reply with the correct contact person and phone number.\n"
+            "Example: `Anuar 017-6909201`\n\n"
+            "Or send /cancel to return without changing.",
+            parse_mode="Markdown",
+            reply_markup=back_kb,
+        )
+    elif data == "btn_edit_ref":
+        await query.answer()
+        context.chat_data[EDIT_FIELD_KEY] = {"field": "ref"}
+        back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Cancel & Return", callback_data="btn_edit_back")]])
+        await query.edit_message_text(
+            "🔢 *Edit Reference / D.O Number*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "Please reply with the correct Reference or D.O number.\n"
+            "Example: `TG-K09183`\n\n"
+            "Or send /cancel to return without changing.",
+            parse_mode="Markdown",
+            reply_markup=back_kb,
+        )
+    elif data == "btn_edit_date":
+        await query.answer()
+        context.chat_data[EDIT_FIELD_KEY] = {"field": "date"}
+        back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Cancel & Return", callback_data="btn_edit_back")]])
+        await query.edit_message_text(
+            "📅 *Edit Document Date*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "Please reply with the correct date (DD.MM.YYYY or YYYY-MM-DD).\n"
+            "Example: `01.08.2026`\n\n"
+            "Or send /cancel to return without changing.",
+            parse_mode="Markdown",
+            reply_markup=back_kb,
+        )
+    elif data == "btn_edit_supplier":
+        await query.answer()
+        context.chat_data[EDIT_FIELD_KEY] = {"field": "supplier"}
+        back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Cancel & Return", callback_data="btn_edit_back")]])
+        await query.edit_message_text(
+            "🏢 *Edit Supplier Name*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "Please reply with the correct supplier name.\n"
+            "Example: `Tuju Galaksi Sdn Bhd`\n\n"
+            "Or send /cancel to return without changing.",
+            parse_mode="Markdown",
+            reply_markup=back_kb,
+        )
+    elif data == "btn_edit_items":
+        await query.answer()
+        pending = get_pending_review(context, update.effective_chat.id if update.effective_chat else None)
+        data_dict = pending_review_data(pending) if pending else None
+        items = line_items_from_data(data_dict) if data_dict else []
+        items_lines = []
+        for i, it in enumerate(items, start=1):
+            desc = it.get('description', 'Item')
+            qty = it.get('quantity', '')
+            unit = it.get('unit', '')
+            price = it.get('unit_price', '0.00')
+            amt = it.get('amount', '0.00')
+            items_lines.append(f"*{i}.* {desc} — `{qty} {unit}` @ RM {price} (Total: RM {amt})")
+        items_text = "\n".join(items_lines) if items_lines else "No line items found."
+        await query.edit_message_text(
+            f"📦 *Current Line Items:*\n━━━━━━━━━━━━━━━━━━━\n{items_text}\n\n"
+            f"Tap an item below to edit its quantity, price, or description:\n\n"
+            f"💡 *Tip:* You can also type `/edit item 1 4 roll 168.00` directly.",
+            parse_mode="Markdown",
+            reply_markup=edit_line_items_keyboard(items),
+        )
+    elif data.startswith("btn_edit_item_"):
+        idx_str = data.removeprefix("btn_edit_item_")
+        idx = int(idx_str) if idx_str.isdigit() else 1
+        context.chat_data[EDIT_FIELD_KEY] = {"field": "item", "index": idx}
+        await query.answer()
+        back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Cancel & Return", callback_data="btn_edit_items")]])
+        await query.edit_message_text(
+            f"✏️ *Editing Item {idx}*\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"Reply with the new quantity, unit, or price.\n"
+            f"Examples:\n"
+            f"• Just quantity: `5 roll`\n"
+            f"• Quantity & price: `5 roll, 160.00`\n"
+            f"• Full: `0.8mm wire, 5 roll, 160.00`\n"
+            f"• To delete: `delete`\n\n"
+            f"Or send /cancel to return without changing.",
+            parse_mode="Markdown",
+            reply_markup=back_kb,
+        )
+    elif data == "btn_edit_add_item":
+        context.chat_data[EDIT_FIELD_KEY] = {"field": "add_item"}
+        await query.answer()
+        back_kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Cancel & Return", callback_data="btn_edit_items")]])
+        await query.edit_message_text(
+            "➕ *Add New Line Item*\n"
+            "━━━━━━━━━━━━━━━━━━━\n"
+            "Reply with the item details:\n"
+            "Format: `Description, Quantity Unit, Unit Price`\n"
+            "Example: `Cutting Disc 4 inch, 10 pcs, 2.50`\n\n"
+            "Or send /cancel to return without adding.",
+            parse_mode="Markdown",
+            reply_markup=back_kb,
+        )
     elif data == "btn_cancel":
         await query.answer("Discarded.")
         await cancel_pending(update, context)
@@ -6021,6 +6402,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 update, context, custom_name, force_record=bool(custom_name_state.get("force_record")),
             )
             return
+
+        edit_field = context.chat_data.get(EDIT_FIELD_KEY)
+        if isinstance(edit_field, dict):
+            raw_text = (update.message.text or "").strip()
+            if not raw_text:
+                await update.message.reply_text("Please provide a non-empty value, or send /cancel to return.")
+                return
+            context.chat_data.pop(EDIT_FIELD_KEY, None)
+            applied, msg = apply_manual_edit(context, update.effective_chat.id if update.effective_chat else None, edit_field, raw_text)
+            if applied:
+                await safe_reply_text(update, f"✅ {msg}", "edit success notice")
+            else:
+                await safe_reply_text(update, f"⚠️ {msg}", "edit failure notice")
+            await review_pending(update, context)
+            return
+
         await update.message.reply_text("Send me the D.O photo and the matching invoice photo, or attach them as image files.")
 
 
@@ -6170,6 +6567,7 @@ BOT_COMMANDS = [
     BotCommand("saveall", "Force save all items including duplicates"),
     BotCommand("saverecord", "Save as official record (testing users)"),
     BotCommand("review", "Show the current pending pair review"),
+    BotCommand("edit", "Manually correct extracted document data"),
     BotCommand("usedo", "Use D.O items as the item source"),
     BotCommand("useinvoice", "Use invoice items as the item source"),
     BotCommand("last", "Resend the latest saved files"),
@@ -6209,6 +6607,7 @@ def build_application(token: str) -> Application:
     application.add_handler(CommandHandler("cleanup", cleanup_command))
     application.add_handler(CommandHandler("last", last_invoice_command))
     application.add_handler(CommandHandler("review", review_pending))
+    application.add_handler(CommandHandler("edit", edit_command))
     application.add_handler(CommandHandler("usedo", use_do_items))
     application.add_handler(CommandHandler("useinvoice", use_invoice_items))
     application.add_handler(CommandHandler("save", save_pending))

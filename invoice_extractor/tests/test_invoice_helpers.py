@@ -745,6 +745,93 @@ class PDFConversionTests(unittest.TestCase):
             self.assertTrue(pages[1].exists())
 
 
+class ManualEditTests(unittest.TestCase):
+    def test_apply_manual_edit_contact_person(self) -> None:
+        from unittest.mock import MagicMock
+        from invoice_bot import apply_manual_edit, PENDING_REVIEW_KEY
+
+        context = MagicMock()
+        pending = {
+            "data": {
+                "supplier_name": "Tuju Galaksi Sdn Bhd",
+                "tax_invoice": "TG-K09183",
+                "contact_person": "Not specified",
+            },
+            "submitter_chat_id": "12345",
+        }
+        context.chat_data = {PENDING_REVIEW_KEY: pending}
+
+        applied, msg = apply_manual_edit(context, 12345, {"field": "contact"}, "Anuar 017-6909201")
+        self.assertTrue(applied)
+        self.assertIn("Anuar 017-6909201", pending["data"]["contact_person"])
+        self.assertIn("Anuar 017-6909201", pending["data"]["delivery_order_contact_person"])
+
+    def test_apply_manual_edit_ref_number(self) -> None:
+        from unittest.mock import MagicMock
+        from invoice_bot import apply_manual_edit, PENDING_REVIEW_KEY
+
+        context = MagicMock()
+        pending = {
+            "data": {
+                "tax_invoice": "OLD-REF",
+            },
+            "submitter_chat_id": "12345",
+        }
+        context.chat_data = {PENDING_REVIEW_KEY: pending}
+
+        applied, msg = apply_manual_edit(context, 12345, {"field": "ref"}, "TG-K09183-NEW")
+        self.assertTrue(applied)
+        self.assertEqual(pending["data"]["tax_invoice"], "TG-K09183-NEW")
+        self.assertEqual(pending["data"]["delivery_order_no"], "TG-K09183-NEW")
+
+    def test_apply_manual_edit_line_item(self) -> None:
+        from unittest.mock import MagicMock
+        from invoice_bot import apply_manual_edit, PENDING_REVIEW_KEY
+
+        context = MagicMock()
+        pending = {
+            "data": {
+                "line_items": [
+                    {"item_no": "1", "description": "MIG wire", "quantity": 3, "unit": "roll", "unit_price": 100.0, "amount": 300.0},
+                ],
+                "document_total": 300.0,
+            },
+            "submitter_chat_id": "12345",
+        }
+        context.chat_data = {PENDING_REVIEW_KEY: pending}
+
+        # Update item 1 to 5 roll, 120.00
+        applied, msg = apply_manual_edit(context, 12345, {"field": "item", "index": 1}, "5 roll, 120.00")
+        self.assertTrue(applied)
+        item = pending["data"]["line_items"][0]
+        self.assertEqual(item["quantity"], 5)
+        self.assertEqual(item["unit"], "roll")
+        self.assertEqual(item["unit_price"], 120.0)
+        self.assertEqual(item["amount"], 600.0)
+
+    def test_apply_manual_edit_delete_item(self) -> None:
+        from unittest.mock import MagicMock
+        from invoice_bot import apply_manual_edit, PENDING_REVIEW_KEY
+
+        context = MagicMock()
+        pending = {
+            "data": {
+                "line_items": [
+                    {"item_no": "1", "description": "Item 1", "quantity": 1, "unit_price": 50.0, "amount": 50.0},
+                    {"item_no": "2", "description": "Item 2", "quantity": 2, "unit_price": 25.0, "amount": 50.0},
+                ],
+                "document_total": 100.0,
+            },
+            "submitter_chat_id": "12345",
+        }
+        context.chat_data = {PENDING_REVIEW_KEY: pending}
+
+        applied, msg = apply_manual_edit(context, 12345, {"field": "item", "index": 1}, "delete")
+        self.assertTrue(applied)
+        self.assertEqual(len(pending["data"]["line_items"]), 1)
+        self.assertEqual(pending["data"]["line_items"][0]["description"], "Item 2")
+
+
 if __name__ == "__main__":
     unittest.main()
 
