@@ -5114,15 +5114,15 @@ async def process_invoice_image(
             solo_btn_label = "📄 Proceed without pairing"
 
         single_summary = (
-            f"📄 *{document_type_label(document_type)} Extracted*\n"
+            f"📄 {document_type_label(document_type)} Extracted\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
-            f"• *Supplier:* {supplier_title}\n"
-            f"• *Document No:* `{tax_invoice}`\n"
-            f"• *Date:* {date_str}\n"
-            f"• *Contact:* {contact_str}\n"
-            f"• *Line Items:* {line_item_count}\n\n"
-            f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
-            f"⏳ *Next Step:* Please upload the matching *{next_needed}* photo.\n"
+            f"• Supplier: {supplier_title}\n"
+            f"• Document No: {tax_invoice}\n"
+            f"• Date: {date_str}\n"
+            f"• Contact: {contact_str}\n"
+            f"• Line Items: {line_item_count}\n\n"
+            f"📦 Extracted Items:\n{format_item_review(data)}\n\n"
+            f"⏳ Next Step: Please upload the matching {next_needed} photo.\n"
             f"Or tap below if you don't have it."
         )
 
@@ -5131,12 +5131,7 @@ async def process_invoice_image(
             [InlineKeyboardButton("❌ Discard", callback_data="btn_cancel")],
         ])
 
-        if update.message:
-            await update.message.reply_text(
-                single_summary,
-                parse_mode="Markdown",
-                reply_markup=solo_keyboard,
-            )
+        await safe_reply_text(update, single_summary, "single document extraction summary", reply_markup=solo_keyboard)
         return
 
     data = paired_data or data
