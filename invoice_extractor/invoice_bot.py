@@ -5104,6 +5104,15 @@ async def process_invoice_image(
             data["delivery_order_contact_person"] = contact_str
         contact_str = contact_str or "Not specified"
 
+        # Determine the label for the "proceed without pairing" button
+        missing_doc_type = missing[0] if missing else None
+        if missing_doc_type == DOCUMENT_TYPE_DELIVERY_ORDER:
+            solo_btn_label = "📄 No D.O — Proceed with Invoice only"
+        elif missing_doc_type == DOCUMENT_TYPE_INVOICE:
+            solo_btn_label = "🧾 No Invoice — Proceed with D.O only"
+        else:
+            solo_btn_label = "📄 Proceed without pairing"
+
         single_summary = (
             f"📄 *{document_type_label(document_type)} Extracted*\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
@@ -5113,9 +5122,21 @@ async def process_invoice_image(
             f"• *Contact:* {contact_str}\n"
             f"• *Line Items:* {line_item_count}\n\n"
             f"📦 *Extracted Items:*\n{format_item_review(data)}\n\n"
-            f"⏳ *Next Step:* Please upload the matching *{next_needed}* photo to generate the Purchase Order."
+            f"⏳ *Next Step:* Please upload the matching *{next_needed}* photo.\n"
+            f"Or tap below if you don't have it."
         )
-        await safe_reply_text(update, single_summary, "single document extraction summary")
+
+        solo_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(solo_btn_label, callback_data="btn_proceed_solo")],
+            [InlineKeyboardButton("❌ Discard", callback_data="btn_cancel")],
+        ])
+
+        if update.message:
+            await update.message.reply_text(
+                single_summary,
+                parse_mode="Markdown",
+                reply_markup=solo_keyboard,
+            )
         return
 
     data = paired_data or data
@@ -5655,6 +5676,41 @@ async def handle_action_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif data == "btn_cancel":
         await query.answer("Discarded.")
         await cancel_pending(update, context)
+    elif data == "btn_proceed_solo":
+        # User confirmed they don't have the matching document — proceed with what we have
+        await query.answer("Proceeding with single document...")
+        pending = context.chat_data.get(PENDING_REVIEW_KEY)
+        if not isinstance(pending, dict):
+            await query.edit_message_text("⚠️ No pending document found. Please upload again.")
+            return
+        # Find whichever single document exists and promote it as the standalone data
+        documents = pending.get("documents") or {}
+        single_record = (
+            documents.get(DOCUMENT_TYPE_INVOICE)
+            or documents.get(DOCUMENT_TYPE_DELIVERY_ORDER)
+        )
+        if single_record:
+            solo_data = single_record["data"]
+            solo_data["submitter_chat_id"] = pending.get("submitter_chat_id", "")
+            solo_data["submitter_name"] = pending.get("submitter_name", "")
+            solo_data["record_type"] = invoice_record_type(
+                int(pending["submitter_chat_id"]) if pending.get("submitter_chat_id", "").isdigit() else None
+            )
+            pending["data"] = solo_data
+            pending["image_path"] = single_record["image_path"]
+            pending["invoice_id"] = single_record["invoice_id"]
+            pending["received_at"] = single_record["received_at"]
+            pending["item_source_confirmed"] = True
+            context.chat_data[PENDING_REVIEW_KEY] = pending
+            submitter_chat_id = pending.get("submitter_chat_id")
+            if submitter_chat_id:
+                pending_store.save_pending(DATA_DIR, submitter_chat_id, pending)
+        # Edit the waiting message to remove the buttons, then show review
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        await review_pending(update, context)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
