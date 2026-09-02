@@ -5003,6 +5003,7 @@ async def process_invoice_image(
 
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or "number unknown"
     line_item_count = len(line_items_from_data(data))
+    date_str = data.get("invoice_date") or "Date unknown"
     submitter = update.effective_user
     pending = save_pending_review(
         context,
