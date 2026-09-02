@@ -1163,6 +1163,15 @@ def compare_and_merge_documents(
         or resolve_document_contact_person(invoice)
         or ""
     )
+    if not final_contact:
+        do_img = (
+            delivery_order.get("image_path")
+            or delivery_order.get("delivery_order_image_path")
+            or invoice.get("delivery_order_image_path")
+        )
+        if do_img and Path(do_img).exists():
+            final_contact = extract_contact_person_from_image(Path(do_img)) or ""
+
     merged["delivery_order_contact_person"] = final_contact
     merged["contact_person"] = final_contact
     merged["document_type"] = "matched_pair"
@@ -3111,19 +3120,30 @@ async def extract_invoice_openai(
 
 def extract_contact_person_from_image(image_path: Path) -> str | None:
     try:
-        crops = create_tuju_focused_crops(image_path)
-        contact_crop = crops.get("contact")
-        if contact_crop and contact_crop.exists():
-            contact_text, _ = ocr_text_and_confidence(contact_crop)
-            parsed = parse_ocr_contact_person(contact_text)
-            if parsed and "azyan" not in parsed.lower():
-                return parsed
-        full_text, _ = ocr_text_and_confidence(image_path)
-        parsed = parse_ocr_contact_person(full_text)
-        if parsed and "azyan" not in parsed.lower():
-            return parsed
-    except Exception:
-        pass
+        ENHANCED_DIR.mkdir(parents=True, exist_ok=True)
+        with Image.open(image_path) as base_img:
+            base_img = ImageOps.exif_transpose(base_img)
+            for rot in [0, 270, 90, 180]:
+                rot_img = base_img.rotate(rot, expand=True) if rot != 0 else base_img
+                temp_path = ENHANCED_DIR / f"{image_path.stem}_ocr_rot_{rot}.png"
+                rot_img.save(temp_path)
+                try:
+                    crops = create_tuju_focused_crops(temp_path)
+                    contact_crop = crops.get("contact")
+                    if contact_crop and contact_crop.exists():
+                        contact_text, _ = ocr_text_and_confidence(contact_crop)
+                        parsed = parse_ocr_contact_person(contact_text)
+                        if parsed and "azyan" not in parsed.lower():
+                            return parsed
+
+                    full_text, _ = ocr_text_and_confidence(temp_path)
+                    parsed = parse_ocr_contact_person(full_text)
+                    if parsed and "azyan" not in parsed.lower():
+                        return parsed
+                finally:
+                    temp_path.unlink(missing_ok=True)
+    except Exception as exc:
+        logging.warning("extract_contact_person_from_image failed for %s: %s", image_path.name, exc)
     return None
 
 
@@ -4962,8 +4982,13 @@ async def process_invoice_image(
             return
 
         supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
-        date_str = data.get("invoice_date") or "Date unknown"
-        contact_str = data.get("contact_person") or "Contact unknown"
+        contact_str = resolve_document_contact_person(data)
+        if not contact_str and image_path and Path(image_path).exists():
+            contact_str = extract_contact_person_from_image(Path(image_path))
+            if contact_str:
+                data["contact_person"] = contact_str
+                data["delivery_order_contact_person"] = contact_str
+        contact_str = contact_str or "Not specified"
 
         single_summary = (
             f"📄 *{document_type_label(document_type)} Extracted*\n"
@@ -4986,7 +5011,15 @@ async def process_invoice_image(
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
     doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     date_str = data.get("invoice_date") or "Date unknown"
-    contact_str = resolve_document_contact_person(data) or "Not specified"
+    contact_str = resolve_document_contact_person(data)
+    if not contact_str:
+        candidate_img = data.get("delivery_order_image_path") or data.get("image_path")
+        if candidate_img and Path(candidate_img).exists():
+            contact_str = extract_contact_person_from_image(Path(candidate_img))
+            if contact_str:
+                data["contact_person"] = contact_str
+                data["delivery_order_contact_person"] = contact_str
+    contact_str = contact_str or "Not specified"
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
     summary_text = (
@@ -5052,7 +5085,19 @@ async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     date_str = data.get("invoice_date") or "Date unknown"
-    contact_str = resolve_document_contact_person(data) or "Not specified"
+    contact_str = resolve_document_contact_person(data)
+    if not contact_str:
+        candidate_img = data.get("delivery_order_image_path") or data.get("image_path")
+        if not candidate_img and isinstance(pending.get("documents"), dict):
+            do_rec = pending["documents"].get(DOCUMENT_TYPE_DELIVERY_ORDER)
+            if do_rec:
+                candidate_img = do_rec.get("image_path")
+        if candidate_img and Path(candidate_img).exists():
+            contact_str = extract_contact_person_from_image(Path(candidate_img))
+            if contact_str:
+                data["contact_person"] = contact_str
+                data["delivery_order_contact_person"] = contact_str
+    contact_str = contact_str or "Not specified"
     line_item_count = len(line_items_from_data(data))
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
