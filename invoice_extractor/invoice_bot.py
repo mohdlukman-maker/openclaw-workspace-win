@@ -3024,55 +3024,28 @@ async def extract_invoice_gemini(
     )
 
     models_to_try = [model]
-    for fallback in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
-        if fallback not in models_to_try:
-            models_to_try.append(fallback)
+    if "gemini-2.5-flash" not in models_to_try:
+        models_to_try.append("gemini-2.5-flash")
 
     last_error: Exception | None = None
     for attempt_model in models_to_try:
-        for attempt in range(2):
-            try:
-                response = await client.aio.models.generate_content(
+        try:
+            response = await asyncio.wait_for(
+                client.aio.models.generate_content(
                     model=attempt_model,
                     contents=contents,
                     config=config,
-                )
-                text = response.text
-                if not text:
-                    raise RuntimeError("Gemini API returned an empty extraction result.")
-                return json.loads(text)
-            except Exception as exc:
-                last_error = exc
-                exc_str = str(exc).lower()
-                is_transient = any(
-                    err in exc_str
-                    for err in (
-                        "503",
-                        "unavailable",
-                        "high demand",
-                        "overloaded",
-                        "429",
-                        "resource_exhausted",
-                        "rate_limit",
-                        "quota",
-                        "500",
-                        "internal",
-                        "404",
-                        "not_found",
-                    )
-                )
-                if is_transient:
-                    logging.warning(
-                        "Gemini model %s attempt %d returned transient error: %s; trying fallback...",
-                        attempt_model,
-                        attempt + 1,
-                        exc,
-                    )
-                    await asyncio.sleep(1.0)
-                    if "404" in exc_str or "not_found" in exc_str:
-                        break  # Move immediately to the next model
-                    continue
-                raise
+                ),
+                timeout=25.0,
+            )
+            text = response.text
+            if not text:
+                raise RuntimeError("Gemini API returned an empty extraction result.")
+            return json.loads(text)
+        except Exception as exc:
+            last_error = exc
+            logging.warning("Gemini model %s failed: %s", attempt_model, exc)
+            continue
 
     if last_error:
         raise last_error
@@ -3086,7 +3059,7 @@ async def extract_invoice_openai(
     system_instruction: str = SYSTEM_PROMPT,
 ) -> dict[str, Any]:
     base_url = openai_base_url()
-    client = AsyncOpenAI(api_key=openai_bearer_credential(), base_url=base_url, timeout=60.0)
+    client = AsyncOpenAI(api_key=openai_bearer_credential(), base_url=base_url, timeout=30.0)
 
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
     for candidate_path in image_paths:
@@ -3102,14 +3075,17 @@ async def extract_invoice_openai(
             }
         )
 
-    response = await client.chat.completions.create(
-        model=model,
-        temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": content},
-        ],
+    response = await asyncio.wait_for(
+        client.chat.completions.create(
+            model=model,
+            temperature=0,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": content},
+            ],
+        ),
+        timeout=30.0,
     )
 
     content_str = response.choices[0].message.content
@@ -3200,8 +3176,16 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
     return data
 
 
+_AI_CONTACT_CACHE: dict[str, str | None] = {}
+
+
 async def _extract_contact_person_via_ai(image_path: Path, provider: str, model: str | None = None) -> str | None:
     """Targeted AI call to extract ONLY the delivery address contact person."""
+    cache_key = str(image_path.resolve()) if image_path.exists() else str(image_path)
+    if cache_key in _AI_CONTACT_CACHE:
+        logging.info("CONTACT_DEBUG: Reusing cached contact for %s -> %r", image_path.name, _AI_CONTACT_CACHE[cache_key])
+        return _AI_CONTACT_CACHE[cache_key]
+
     contact_prompt = (
         "This is a delivery order or invoice document. "
         "Find the DELIVERY SITE contact person — the person at the delivery destination who can be reached on-site. "
@@ -3210,6 +3194,7 @@ async def _extract_contact_person_via_ai(image_path: Path, provider: str, model:
         "Return ONLY a JSON object with one key: {\"contact_person\": \"Full Name Phone\"} "
         "or {\"contact_person\": null} if no delivery site contact is visible."
     )
+    contact = None
     try:
         if provider == "gemini":
             target_model = model or gemini_model_name()
@@ -3227,8 +3212,6 @@ async def _extract_contact_person_via_ai(image_path: Path, provider: str, model:
             raw = fallback_result.get("contact_person")
             contact = normalize_contact_person(raw)
             logging.info("CONTACT_DEBUG: OpenRouter fallback result=%r", contact)
-
-        return contact
     except Exception as exc:
         logging.warning("Targeted AI contact extraction failed: %s", exc)
         # If Gemini failed entirely, try OpenRouter
@@ -3238,10 +3221,12 @@ async def _extract_contact_person_via_ai(image_path: Path, provider: str, model:
                 target_model = openai_model_name()
                 fallback_result = await extract_invoice_openai([image_path], contact_prompt, target_model, "Extract delivery contact person only.")
                 raw = fallback_result.get("contact_person")
-                return normalize_contact_person(raw)
+                contact = normalize_contact_person(raw)
             except Exception as fallback_exc:
                 logging.warning("CONTACT_DEBUG: OpenRouter contact fallback also failed: %s", fallback_exc)
-        return None
+
+    _AI_CONTACT_CACHE[cache_key] = contact
+    return contact
 
 async def reconcile_invoice_extraction(
     image_path: Path,
@@ -6049,8 +6034,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
             err_text = user_facing_error(err) if err else "An unexpected issue occurred."
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=f"⚠️ *Processing Notice*\n━━━━━━━━━━━━━━━━━━━\n{err_text}\n\nPlease try again, or check /status.",
-                parse_mode="Markdown",
+                text=f"⚠️ Processing Notice\n━━━━━━━━━━━━━━━━━━━\n{err_text}\n\nPlease try again, or check /status.",
             )
         except Exception:
             logging.exception("Failed to notify chat about an error")
