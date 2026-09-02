@@ -5109,24 +5109,43 @@ async def process_invoice_image(
     supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
     doc_label = "Service Order" if is_so else ("Quotation" if (document_type == DOCUMENT_TYPE_QUOTATION) else "D.O + Invoice Pair")
     date_str = data.get("invoice_date") or "Date unknown"
+
+    # ── Contact person resolution with debug logging ──
     contact_str = resolve_document_contact_person(data)
+    logging.info("CONTACT_DEBUG paired_display: resolve_document_contact_person returned %r from data keys %s", contact_str, [k for k in data if "contact" in k.lower()])
+    logging.info("CONTACT_DEBUG paired_display: raw contact_person=%r delivery_order_contact_person=%r", data.get("contact_person"), data.get("delivery_order_contact_person"))
+
     if not contact_str:
         candidate_img = data.get("delivery_order_image_path") or data.get("image_path")
+        logging.info("CONTACT_DEBUG paired_display: candidate_img=%r exists=%s", candidate_img, Path(candidate_img).exists() if candidate_img else False)
         if candidate_img and Path(candidate_img).exists():
             try:
                 provider = configured_ai_provider()
+                logging.info("CONTACT_DEBUG paired_display: calling _extract_contact_person_via_ai with provider=%s", provider)
                 contact_str = await _extract_contact_person_via_ai(Path(candidate_img), provider)
-            except Exception:
-                pass
+                logging.info("CONTACT_DEBUG paired_display: AI contact result=%r", contact_str)
+            except Exception as ai_exc:
+                logging.warning("CONTACT_DEBUG paired_display: AI contact extraction FAILED: %s", ai_exc)
         if not contact_str and candidate_img and Path(candidate_img).exists():
             try:
                 contact_str = await asyncio.to_thread(extract_contact_person_from_image, Path(candidate_img))
-            except Exception:
-                pass
-        if contact_str:
-            data["contact_person"] = contact_str
-            data["delivery_order_contact_person"] = contact_str
+                logging.info("CONTACT_DEBUG paired_display: OCR contact result=%r", contact_str)
+            except Exception as ocr_exc:
+                logging.warning("CONTACT_DEBUG paired_display: OCR contact extraction FAILED: %s", ocr_exc)
+
+    # Last resort: search ALL data values for known contact patterns
+    if not contact_str:
+        all_text = " ".join(str(v) for v in data.values() if isinstance(v, str))
+        anuar_last_resort = re.search(r"(?i)\b(anu[ao]r\s*(?:01\d[-\s]?\d{3,4}[-\s]?\d{4})?)\b", all_text)
+        if anuar_last_resort:
+            contact_str = normalize_contact_person(anuar_last_resort.group(1))
+            logging.info("CONTACT_DEBUG paired_display: last-resort regex found %r", contact_str)
+
+    if contact_str:
+        data["contact_person"] = contact_str
+        data["delivery_order_contact_person"] = contact_str
     contact_str = contact_str or "Not specified"
+    logging.info("CONTACT_DEBUG paired_display: FINAL contact_str=%r", contact_str)
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
     summary_text = (
