@@ -1354,15 +1354,15 @@ def openai_model_name() -> str:
 
 def configured_ai_provider() -> str:
     explicit = os.getenv("AI_PROVIDER", "").strip().lower()
-    if explicit in {"openai", "openrouter"}:
-        return "openai"
     if explicit in {"gemini", "google"}:
         return "gemini"
-    if os.getenv("OPENROUTER_API_KEY") and not gemini_api_key():
+    if explicit in {"openai", "openrouter"}:
         return "openai"
     if gemini_api_key():
         return "gemini"
-    return "openai"
+    if os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY"):
+        return "openai"
+    return "gemini"
 
 
 def ai_model_name() -> str:
