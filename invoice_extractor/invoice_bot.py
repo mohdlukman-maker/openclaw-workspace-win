@@ -3194,15 +3194,7 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
                 data["delivery_order_contact_person"] = ai_contact
         except Exception:
             pass
-        # Second try: Tesseract OCR fallback
-        if not normalize_contact_person(data.get("contact_person")):
-            try:
-                local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
-                if local_contact:
-                    data["contact_person"] = local_contact
-                    data["delivery_order_contact_person"] = local_contact
-            except Exception:
-                pass
+
     if "TUJU focused" in image_note:
         data["extraction_profile"] = "tuju_focused"
     return data
@@ -5016,15 +5008,7 @@ async def process_invoice_image(
                     data["delivery_order_contact_person"] = ai_contact
             except Exception:
                 pass
-            # Secondary fallback: Tesseract OCR
-            if not resolve_document_contact_person(data):
-                try:
-                    local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
-                    if local_contact:
-                        data["contact_person"] = local_contact
-                        data["delivery_order_contact_person"] = local_contact
-                except Exception:
-                    pass
+
 
         save_extraction_json(invoice_id, data)
     except Exception as exc:
@@ -5080,11 +5064,7 @@ async def process_invoice_image(
                 contact_str = await _extract_contact_person_via_ai(Path(image_path), provider)
             except Exception:
                 pass
-        if not contact_str and image_path and Path(image_path).exists():
-            try:
-                contact_str = await asyncio.to_thread(extract_contact_person_from_image, Path(image_path))
-            except Exception:
-                pass
+
         if contact_str:
             data["contact_person"] = contact_str
             data["delivery_order_contact_person"] = contact_str
@@ -5144,12 +5124,7 @@ async def process_invoice_image(
                 logging.info("CONTACT_DEBUG paired_display: AI contact result=%r", contact_str)
             except Exception as ai_exc:
                 logging.warning("CONTACT_DEBUG paired_display: AI contact extraction FAILED: %s", ai_exc)
-        if not contact_str and candidate_img and Path(candidate_img).exists():
-            try:
-                contact_str = await asyncio.to_thread(extract_contact_person_from_image, Path(candidate_img))
-                logging.info("CONTACT_DEBUG paired_display: OCR contact result=%r", contact_str)
-            except Exception as ocr_exc:
-                logging.warning("CONTACT_DEBUG paired_display: OCR contact extraction FAILED: %s", ocr_exc)
+
 
     # Last resort: search ALL data values for known contact patterns
     if not contact_str:
@@ -6314,7 +6289,7 @@ def main() -> None:
 
     application = build_application(token)
     logging.info("Invoice bot is running. Invoice workbook folder: %s", workbook_dir)
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 
 if __name__ == "__main__":
