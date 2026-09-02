@@ -2369,7 +2369,7 @@ def normalize_contact_person(value: Any) -> str | None:
         return None
     if "azyan" in text.lower() or "8873726" in text:
         return None
-    if any(w in text.lower() for w in ("not visible", "none", "unknown", "mentioned", "nil", "n/a", "no contact")):
+    if any(w in text.lower() for w in ("not visible", "not specified", "not available", "unspecified", "none", "unknown", "mentioned", "nil", "n/a", "no contact")):
         return None
     text = re.sub(r"(?i)\banuor\b", "Anuar", text)
     text = re.sub(r"\b(?:tel|fax|h/?p|hp|attn|contact person|person to contact|site contact|delivery contact)\b\s*:?", "", text, flags=re.IGNORECASE)
@@ -3178,11 +3178,12 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
     data.setdefault("line_items", [])
     repair_line_item_arithmetic(data)
     validate_ai_extraction(data)
-    if not data.get("contact_person") or "azyan" in str(data.get("contact_person", "")).lower():
+    if not normalize_contact_person(data.get("contact_person")):
         try:
             local_contact = extract_contact_person_from_image(image_path)
             if local_contact:
                 data["contact_person"] = local_contact
+                data["delivery_order_contact_person"] = local_contact
         except Exception:
             pass
     if "TUJU focused" in image_note:
@@ -3299,7 +3300,7 @@ def load_cached_extraction(source_image_hash: str | None) -> dict[str, Any] | No
         data["delivery_order"] = do_num
         data["delivery_order_no"] = do_num
 
-    if not data.get("contact_person") or "azyan" in str(data.get("contact_person", "")).lower():
+    if not normalize_contact_person(data.get("contact_person")):
         notes = str(data.get("notes") or "")
         anuar_m = re.search(r"(?i)\b(anu[ao]r\s*(?:[0-9+ -]{7,15})?)\b", notes)
         if anuar_m:
@@ -3544,6 +3545,11 @@ def save_pending_review(
     data["record_type"] = invoice_record_type(submitter_chat_id)
     document_type = normalize_document_type(data)
     data["document_type"] = document_type
+    data["image_path"] = str(image_path)
+    if document_type == DOCUMENT_TYPE_DELIVERY_ORDER:
+        data["delivery_order_image_path"] = str(image_path)
+    elif document_type == DOCUMENT_TYPE_INVOICE:
+        data["invoice_image_path"] = str(image_path)
 
     pending = context.chat_data.get(PENDING_REVIEW_KEY)
     if not isinstance(pending, dict) or pending.get("mode") != "pair":
