@@ -829,14 +829,10 @@ def normalize_document_type(data: dict[str, Any]) -> str:
     if raw_type in {"delivery_order", "delivery order", "do", "d.o", "d/o"}:
         return DOCUMENT_TYPE_DELIVERY_ORDER
     if raw_type in {"invoice", "tax invoice", "tax_invoice"}:
-        if data.get("delivery_order") and data.get("tax_invoice"):
-            return "matched_pair"
         return DOCUMENT_TYPE_INVOICE
 
     if is_service_order(data):
         return DOCUMENT_TYPE_SERVICE_ORDER
-    if data.get("delivery_order") and data.get("tax_invoice"):
-        return "matched_pair"
 
     line_items = line_items_from_data(data)
     has_prices = any(item.get("unit_price") not in (None, "") or item.get("line_total") not in (None, "") for item in line_items)
@@ -3629,7 +3625,7 @@ def save_pending_review(
     )
     data["supplier_profile"] = supplier_profile
     is_so = is_service_order(data)
-    is_pair = (document_type == "matched_pair" or bool(data.get("delivery_order") and data.get("tax_invoice")))
+    is_pair = (document_type == "matched_pair")
     is_standalone = (
         is_so
         or is_pair
@@ -5048,7 +5044,7 @@ async def process_invoice_image(
         data, configured_default_supplier(), configured_supplier_aliases()
     )
     is_so = is_service_order(data)
-    is_pair = (document_type == "matched_pair" or bool(data.get("delivery_order") and data.get("tax_invoice")))
+    is_pair = (document_type == "matched_pair")
     is_standalone = (
         is_so
         or is_pair
