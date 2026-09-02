@@ -1157,16 +1157,10 @@ def compare_and_merge_documents(
     final_contact = (
         resolve_document_contact_person(delivery_order)
         or resolve_document_contact_person(invoice)
+        or delivery_order.get("contact_person")
+        or invoice.get("contact_person")
         or ""
     )
-    if not final_contact:
-        do_img = (
-            delivery_order.get("image_path")
-            or delivery_order.get("delivery_order_image_path")
-            or invoice.get("delivery_order_image_path")
-        )
-        if do_img and Path(do_img).exists():
-            final_contact = extract_contact_person_from_image(Path(do_img)) or ""
 
     merged["delivery_order_contact_person"] = final_contact
     merged["contact_person"] = final_contact
@@ -3679,14 +3673,6 @@ def save_pending_review(
         merged_data["delivery_order_image_path"] = delivery_order_record["image_path"]
         merged_data["invoice_image_path"] = invoice_record["image_path"]
 
-        if not resolve_document_contact_person(merged_data):
-            do_img = delivery_order_record.get("image_path")
-            if do_img and Path(do_img).exists():
-                local_contact = extract_contact_person_from_image(Path(do_img))
-                if local_contact:
-                    merged_data["contact_person"] = local_contact
-                    merged_data["delivery_order_contact_person"] = local_contact
-
         pending["data"] = merged_data
         pending["pair_compare_warnings"] = compare_warnings
         pending["item_source_choice"] = merged_data.get("item_source") or DOCUMENT_TYPE_DELIVERY_ORDER
@@ -5244,17 +5230,6 @@ async def review_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     tax_invoice = data.get("tax_invoice") or data.get("invoice_number") or data.get("quotation_number") or "number unknown"
     date_str = data.get("invoice_date") or "Date unknown"
     contact_str = resolve_document_contact_person(data)
-    if not contact_str:
-        candidate_img = data.get("delivery_order_image_path") or data.get("image_path")
-        if not candidate_img and isinstance(pending.get("documents"), dict):
-            do_rec = pending["documents"].get(DOCUMENT_TYPE_DELIVERY_ORDER)
-            if do_rec:
-                candidate_img = do_rec.get("image_path")
-        if candidate_img and Path(candidate_img).exists():
-            contact_str = extract_contact_person_from_image(Path(candidate_img))
-            if contact_str:
-                data["contact_person"] = contact_str
-                data["delivery_order_contact_person"] = contact_str
     contact_str = contact_str or "Not specified"
     line_item_count = len(line_items_from_data(data))
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
