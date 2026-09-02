@@ -410,7 +410,7 @@ PLACEHOLDER_CREDENTIALS = {
 }
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_OPENAI_MODEL = "openai/gpt-5.4-mini"
+DEFAULT_OPENAI_MODEL = "google/gemini-2.5-flash"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
@@ -1354,9 +1354,11 @@ def openai_model_name() -> str:
 
 def configured_ai_provider() -> str:
     explicit = os.getenv("AI_PROVIDER", "").strip().lower()
+    if explicit in {"openai", "openrouter"}:
+        return "openai"
     if explicit in {"gemini", "google"}:
         return "gemini"
-    if explicit in {"openai", "openrouter"}:
+    if os.getenv("OPENROUTER_API_KEY") and not gemini_api_key():
         return "openai"
     if gemini_api_key():
         return "gemini"
