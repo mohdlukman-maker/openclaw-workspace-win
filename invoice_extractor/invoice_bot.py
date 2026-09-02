@@ -3121,7 +3121,7 @@ async def extract_invoice_openai(
 _IMAGE_CONTACT_CACHE: dict[str, str | None] = {}
 
 
-def extract_contact_person_from_image(image_path: Path) -> str | None:
+def extract_contact_person_from_image(image_path: Path, max_dim: int = 900) -> str | None:
     cache_key = str(image_path.resolve()) if image_path.exists() else str(image_path)
     if cache_key in _IMAGE_CONTACT_CACHE:
         return _IMAGE_CONTACT_CACHE[cache_key]
@@ -3130,6 +3130,12 @@ def extract_contact_person_from_image(image_path: Path) -> str | None:
         ENHANCED_DIR.mkdir(parents=True, exist_ok=True)
         with Image.open(image_path) as base_img:
             base_img = ImageOps.exif_transpose(base_img)
+            if max(base_img.size) > max_dim:
+                scale = max_dim / max(base_img.size)
+                base_img = base_img.resize(
+                    (int(base_img.width * scale), int(base_img.height * scale)),
+                    Image.Resampling.LANCZOS,
+                )
             for rot in [0, 270, 90, 180]:
                 rot_img = base_img.rotate(rot, expand=True) if rot != 0 else base_img
                 temp_path = ENHANCED_DIR / f"{image_path.stem}_ocr_rot_{rot}.png"
@@ -3178,9 +3184,10 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
     data.setdefault("line_items", [])
     repair_line_item_arithmetic(data)
     validate_ai_extraction(data)
-    if not normalize_contact_person(data.get("contact_person")):
+    doc_type = normalize_document_type(data)
+    if doc_type != DOCUMENT_TYPE_INVOICE and not normalize_contact_person(data.get("contact_person")):
         try:
-            local_contact = extract_contact_person_from_image(image_path)
+            local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
             if local_contact:
                 data["contact_person"] = local_contact
                 data["delivery_order_contact_person"] = local_contact
@@ -4953,9 +4960,10 @@ async def process_invoice_image(
                 data["source_image_hash"] = source_image_hash
                 save_cached_extraction(source_image_hash, data)
 
-        if not resolve_document_contact_person(data):
+        doc_type = normalize_document_type(data)
+        if doc_type != DOCUMENT_TYPE_INVOICE and not resolve_document_contact_person(data):
             try:
-                local_contact = extract_contact_person_from_image(image_path)
+                local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
                 if local_contact:
                     data["contact_person"] = local_contact
                     data["delivery_order_contact_person"] = local_contact
