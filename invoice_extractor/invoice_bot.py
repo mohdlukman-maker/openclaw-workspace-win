@@ -3118,7 +3118,14 @@ async def extract_invoice_openai(
     return json.loads(content_str)
 
 
+_IMAGE_CONTACT_CACHE: dict[str, str | None] = {}
+
+
 def extract_contact_person_from_image(image_path: Path) -> str | None:
+    cache_key = str(image_path.resolve()) if image_path.exists() else str(image_path)
+    if cache_key in _IMAGE_CONTACT_CACHE:
+        return _IMAGE_CONTACT_CACHE[cache_key]
+
     try:
         ENHANCED_DIR.mkdir(parents=True, exist_ok=True)
         with Image.open(image_path) as base_img:
@@ -3128,22 +3135,17 @@ def extract_contact_person_from_image(image_path: Path) -> str | None:
                 temp_path = ENHANCED_DIR / f"{image_path.stem}_ocr_rot_{rot}.png"
                 rot_img.save(temp_path)
                 try:
-                    crops = create_tuju_focused_crops(temp_path)
-                    contact_crop = crops.get("contact")
-                    if contact_crop and contact_crop.exists():
-                        contact_text, _ = ocr_text_and_confidence(contact_crop)
-                        parsed = parse_ocr_contact_person(contact_text)
-                        if parsed and "azyan" not in parsed.lower():
-                            return parsed
-
-                    full_text, _ = ocr_text_and_confidence(temp_path)
+                    full_text, _ = ocr_single_text_and_confidence(temp_path)
                     parsed = parse_ocr_contact_person(full_text)
                     if parsed and "azyan" not in parsed.lower():
+                        _IMAGE_CONTACT_CACHE[cache_key] = parsed
                         return parsed
                 finally:
                     temp_path.unlink(missing_ok=True)
     except Exception as exc:
         logging.warning("extract_contact_person_from_image failed for %s: %s", image_path.name, exc)
+
+    _IMAGE_CONTACT_CACHE[cache_key] = None
     return None
 
 
