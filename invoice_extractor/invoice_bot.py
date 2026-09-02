@@ -3015,7 +3015,7 @@ async def extract_invoice_gemini(
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY or GOOGLE_API_KEY is not set.")
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(api_key=api_key, http_options={"timeout": 60000})
 
     contents: list[Any] = []
     for candidate_path in image_paths:
@@ -3092,7 +3092,7 @@ async def extract_invoice_openai(
     system_instruction: str = SYSTEM_PROMPT,
 ) -> dict[str, Any]:
     base_url = openai_base_url()
-    client = AsyncOpenAI(api_key=openai_bearer_credential(), base_url=base_url)
+    client = AsyncOpenAI(api_key=openai_bearer_credential(), base_url=base_url, timeout=60.0)
 
     content: list[dict[str, Any]] = [{"type": "text", "text": prompt_text}]
     for candidate_path in image_paths:
