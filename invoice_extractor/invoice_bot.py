@@ -3604,6 +3604,15 @@ def save_pending_review(
         merged_data["record_type"] = invoice_record_type(submitter_chat_id)
         merged_data["delivery_order_image_path"] = delivery_order_record["image_path"]
         merged_data["invoice_image_path"] = invoice_record["image_path"]
+
+        if not resolve_document_contact_person(merged_data):
+            do_img = delivery_order_record.get("image_path")
+            if do_img and Path(do_img).exists():
+                local_contact = extract_contact_person_from_image(Path(do_img))
+                if local_contact:
+                    merged_data["contact_person"] = local_contact
+                    merged_data["delivery_order_contact_person"] = local_contact
+
         pending["data"] = merged_data
         pending["pair_compare_warnings"] = compare_warnings
         pending["item_source_choice"] = merged_data.get("item_source") or DOCUMENT_TYPE_DELIVERY_ORDER
@@ -4935,6 +4944,16 @@ async def process_invoice_image(
             if source_image_hash:
                 data["source_image_hash"] = source_image_hash
                 save_cached_extraction(source_image_hash, data)
+
+        if not resolve_document_contact_person(data):
+            try:
+                local_contact = extract_contact_person_from_image(image_path)
+                if local_contact:
+                    data["contact_person"] = local_contact
+                    data["delivery_order_contact_person"] = local_contact
+            except Exception:
+                pass
+
         save_extraction_json(invoice_id, data)
     except Exception as exc:
         logging.exception("Invoice extraction failed")
