@@ -3217,12 +3217,12 @@ async def extract_invoice(image_path: Path, model: str | None = None, primary: b
 async def _extract_contact_person_via_ai(image_path: Path, provider: str, model: str | None = None) -> str | None:
     """Targeted AI call to extract ONLY the delivery address contact person."""
     contact_prompt = (
-        "Look at this document image. "
-        "Find the name 'Anuar' or the number '017-6909201' or '0176909201'. "
-        "If you see it ANYWHERE on the page, return exactly {\"contact_person\": \"Anuar 017-6909201\"}. "
-        "Otherwise, extract ONLY the site contact person name and phone number from the delivery address section. "
-        "Do NOT extract the billing 'Attn:' name (Azyan Nasuha, Aryan Nasuha) or the office phone (016-8873726). "
-        "Return JSON: {\"contact_person\": \"Name Phone\"} or {\"contact_person\": null} if not found."
+        "This is a delivery order or invoice document. "
+        "Find the DELIVERY SITE contact person — the person at the delivery destination who can be reached on-site. "
+        "This is usually labeled 'Contact Person:', 'Attn:', or 'Person to Contact:' inside the DELIVERY ADDRESS box. "
+        "Do NOT return the company billing contact or office receptionist from the billing address. "
+        "Return ONLY a JSON object with one key: {\"contact_person\": \"Full Name Phone\"} "
+        "or {\"contact_person\": null} if no delivery site contact is visible."
     )
     try:
         if provider == "gemini":
@@ -3232,9 +3232,29 @@ async def _extract_contact_person_via_ai(image_path: Path, provider: str, model:
             target_model = model or openai_model_name()
             result = await extract_invoice_openai([image_path], contact_prompt, target_model, "Extract delivery contact person only.")
         raw = result.get("contact_person")
-        return normalize_contact_person(raw)
+        contact = normalize_contact_person(raw)
+
+        # If Gemini returned nothing, automatically retry with OpenRouter as fallback
+        if not contact and provider == "gemini" and openai_bearer_credential():
+            logging.info("CONTACT_DEBUG: Gemini returned None, retrying with OpenRouter fallback")
+            fallback_result = await extract_invoice_openai([image_path], contact_prompt, openai_model_name(), "Extract delivery contact person only.")
+            raw = fallback_result.get("contact_person")
+            contact = normalize_contact_person(raw)
+            logging.info("CONTACT_DEBUG: OpenRouter fallback result=%r", contact)
+
+        return contact
     except Exception as exc:
         logging.warning("Targeted AI contact extraction failed: %s", exc)
+        # If Gemini failed entirely, try OpenRouter
+        if provider == "gemini" and openai_bearer_credential():
+            try:
+                logging.info("CONTACT_DEBUG: Gemini exception, retrying contact with OpenRouter")
+                target_model = openai_model_name()
+                fallback_result = await extract_invoice_openai([image_path], contact_prompt, target_model, "Extract delivery contact person only.")
+                raw = fallback_result.get("contact_person")
+                return normalize_contact_person(raw)
+            except Exception as fallback_exc:
+                logging.warning("CONTACT_DEBUG: OpenRouter contact fallback also failed: %s", fallback_exc)
         return None
 
 async def reconcile_invoice_extraction(
