@@ -565,7 +565,7 @@ class AIProviderTests(unittest.TestCase):
             os.environ.pop("AI_FALLBACK_ENABLED", None)
             self.assertEqual(gemini_api_key(), "AIzaSyFakeKey123")
             self.assertEqual(configured_ai_provider(), "gemini")
-            self.assertEqual(gemini_model_name(), "gemini-3.7-flash")
+            self.assertEqual(gemini_model_name(), "gemini-2.5-flash")
             self.assertTrue(ai_fallback_enabled())
 
             os.environ["AI_PROVIDER"] = "openai"

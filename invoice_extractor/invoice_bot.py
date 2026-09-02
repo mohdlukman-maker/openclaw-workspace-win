@@ -411,7 +411,7 @@ PLACEHOLDER_CREDENTIALS = {
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENAI_MODEL = "openai/gpt-5.4-mini"
-DEFAULT_GEMINI_MODEL = "gemini-3.7-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 
 AUTH_HELP = (
@@ -1291,10 +1291,7 @@ def gemini_api_key() -> str | None:
 
 
 def gemini_model_name() -> str:
-    model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
-    if model in ("gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"):
-        return "gemini-3.7-flash"
-    return model
+    return os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
 
 
 def openai_bearer_credential() -> str:
@@ -3025,7 +3022,7 @@ async def extract_invoice_gemini(
     )
 
     models_to_try = [model]
-    for fallback in ("gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.1-pro-preview"):
+    for fallback in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"):
         if fallback not in models_to_try:
             models_to_try.append(fallback)
 
