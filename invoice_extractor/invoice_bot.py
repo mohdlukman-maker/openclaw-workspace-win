@@ -5005,13 +5005,24 @@ async def process_invoice_image(
 
         doc_type = normalize_document_type(data)
         if doc_type != DOCUMENT_TYPE_INVOICE and not resolve_document_contact_person(data):
+            # Primary fallback: targeted AI re-extraction for contact person
             try:
-                local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
-                if local_contact:
-                    data["contact_person"] = local_contact
-                    data["delivery_order_contact_person"] = local_contact
+                provider = configured_ai_provider()
+                ai_contact = await _extract_contact_person_via_ai(image_path, provider)
+                if ai_contact:
+                    data["contact_person"] = ai_contact
+                    data["delivery_order_contact_person"] = ai_contact
             except Exception:
                 pass
+            # Secondary fallback: Tesseract OCR
+            if not resolve_document_contact_person(data):
+                try:
+                    local_contact = await asyncio.to_thread(extract_contact_person_from_image, image_path)
+                    if local_contact:
+                        data["contact_person"] = local_contact
+                        data["delivery_order_contact_person"] = local_contact
+                except Exception:
+                    pass
 
         save_extraction_json(invoice_id, data)
     except Exception as exc:
@@ -5062,10 +5073,19 @@ async def process_invoice_image(
         supplier_title = supplier_profile.get("display_name") or data.get("supplier_name") or "Supplier"
         contact_str = resolve_document_contact_person(data)
         if not contact_str and image_path and Path(image_path).exists():
-            contact_str = extract_contact_person_from_image(Path(image_path))
-            if contact_str:
-                data["contact_person"] = contact_str
-                data["delivery_order_contact_person"] = contact_str
+            try:
+                provider = configured_ai_provider()
+                contact_str = await _extract_contact_person_via_ai(Path(image_path), provider)
+            except Exception:
+                pass
+        if not contact_str and image_path and Path(image_path).exists():
+            try:
+                contact_str = await asyncio.to_thread(extract_contact_person_from_image, Path(image_path))
+            except Exception:
+                pass
+        if contact_str:
+            data["contact_person"] = contact_str
+            data["delivery_order_contact_person"] = contact_str
         contact_str = contact_str or "Not specified"
 
         single_summary = (
@@ -5093,10 +5113,19 @@ async def process_invoice_image(
     if not contact_str:
         candidate_img = data.get("delivery_order_image_path") or data.get("image_path")
         if candidate_img and Path(candidate_img).exists():
-            contact_str = extract_contact_person_from_image(Path(candidate_img))
-            if contact_str:
-                data["contact_person"] = contact_str
-                data["delivery_order_contact_person"] = contact_str
+            try:
+                provider = configured_ai_provider()
+                contact_str = await _extract_contact_person_via_ai(Path(candidate_img), provider)
+            except Exception:
+                pass
+        if not contact_str and candidate_img and Path(candidate_img).exists():
+            try:
+                contact_str = await asyncio.to_thread(extract_contact_person_from_image, Path(candidate_img))
+            except Exception:
+                pass
+        if contact_str:
+            data["contact_person"] = contact_str
+            data["delivery_order_contact_person"] = contact_str
     contact_str = contact_str or "Not specified"
     btn_label_hint = "Save & Generate SO" if is_so else "Save & Generate PO"
 
